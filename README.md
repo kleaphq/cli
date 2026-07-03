@@ -1,29 +1,116 @@
 # Kleap — website infrastructure for AI agents
 
 [![CI](https://github.com/Kleap-co/kleap/actions/workflows/ci.yml/badge.svg)](https://github.com/Kleap-co/kleap/actions/workflows/ci.yml)
+[![CLI](https://img.shields.io/badge/CLI-kleap-16b364)](#cli-for-agent-shells--claude-code-codex-scripts)
 [![MCP](https://img.shields.io/badge/MCP-server-2563eb)](https://modelcontextprotocol.io)
 [![17 tools](https://img.shields.io/badge/tools-17-ff0055)](#tools)
 [![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
 > **Your agent builds. Kleap ships it live.**
-> Let any AI agent — Claude, ChatGPT, Cursor — build, edit and **publish real,
-> live websites** for you. Hosting, database, auth and domains included.
+> Let any AI agent — Claude, ChatGPT, Cursor, or a bash-tool agent like Claude
+> Code — build, edit and **publish real, live websites** for you. Hosting,
+> database, auth and domains included.
 
 An alternative to Lovable / v0 / Bolt — except it's driven by **your** agent, and
 every publish comes with the **verified-live guarantee**: a site is only ever
 reported online once it is *provably serving* — never a hallucinated dead link.
 
+This package is **both** a CLI (`kleap create "…"`, `kleap publish 42`, …) and an
+[MCP](https://modelcontextprotocol.io) server (`kleap mcp` / no args) — same
+account, same `~/.kleap/config.json` auth, same underlying `/api/v1` REST API.
+Pick whichever fits your agent: a shell/bash-tool agent (Claude Code, a cron
+script, CI) wants the **CLI** — one compact line per call, no JSON-RPC framing.
+An MCP-native client (Claude Desktop, Cursor, ChatGPT connectors) wants the
+**MCP server**, which this package also is, unchanged.
+
 ![A real, unedited run: an agent writes a page with write_files, publishes, and it is live and serving in seconds.](https://raw.githubusercontent.com/Kleap-co/kleap/main/assets/demo.gif)
 
 > *Above: a real run — your agent writes the code with `write_files`, `publish_app` builds & deploys it, and the page is live in seconds. Or just ask Kleap's AI in plain English.*
 
-This is a thin [Model Context Protocol](https://modelcontextprotocol.io) server
-that wraps Kleap's public REST API. **No secrets live in this package** — it reads
-your own `KLEAP_API_KEY` from the environment and talks only to `kleap.co`.
+**No secrets live in this package** — it reads your own `KLEAP_API_KEY` (or the
+token saved by `kleap auth login`) and talks only to `kleap.co`.
 
 ---
 
-## Quick start
+## CLI (for agent shells — Claude Code, Codex, scripts)
+
+If your agent drives a **bash tool** rather than MCP, use the CLI directly.
+Output is 1-3 lines by default (token-efficient — built for an agent reading
+its own tool output, not a human terminal), clean exit codes (`0`/`1`), and a
+`--json` flag whenever you want the full structured response.
+
+```bash
+npx -y @eliottd/kleap auth login              # opens your browser once, no key to paste
+# — or, for CI / non-interactive: npx -y @eliottd/kleap auth key kleap_live_sk_...
+
+npx -y @eliottd/kleap create "a one-page site for my bakery, warm palette"
+# ✓ created app 4821 — https://warm-bakery-fold.kleap.io
+
+npx -y @eliottd/kleap edit 4821 "change the headline to 'Roasted slow'"
+# ✓ edited app 4821 — https://warm-bakery-fold.kleap.io
+
+npx -y @eliottd/kleap publish 4821
+# ✓ published https://warm-bakery-fold.kleap.io
+
+npx -y @eliottd/kleap status warm-bakery-fold.kleap.io   # by id, slug, kleap.io URL, or connected custom domain
+# ✓ Bakery (4821) — live: https://warm-bakery-fold.kleap.io
+```
+
+### Commands
+
+| Command | What it does |
+|---|---|
+| `kleap auth login` | Sign in via browser (OAuth, PKCE loopback) — no key to copy |
+| `kleap auth key <KEY>` | Store a `kleap_live_sk_...` key instead (CI / non-interactive) |
+| `kleap auth logout` / `kleap auth status` | Clear / show current auth |
+| `kleap create "<prompt>" [--visibility public\|personal] [--webhook <url>] [--no-wait] [--json]` | Create a site, wait for the build (~5-15 min), print the live URL |
+| `kleap edit <app> "<prompt>" [--webhook <url>] [--no-wait] [--json]` | Ask Kleap's AI to change a site, wait for it to redeploy |
+| `kleap publish <app> [--no-wait] [--json]` | Publish/redeploy with the verified-live guarantee |
+| `kleap status <app> [--json]` | One-line status: name, id, live URL or "not published" |
+| `kleap list [--limit N] [--q text] [--json]` | Your apps, one tab-separated row each: `id  name  url` |
+| `kleap domains search <query> [--tlds .com,.io] [--json]` | Available domains, one per line |
+| `kleap domains connect <domain> <app> [--json]` | Connect a domain you own; prints the A record to set |
+| `kleap screenshot <app> [--json]` | Capture a preview screenshot, print its URL |
+| `kleap mcp` | Run the MCP stdio server explicitly (same as no args) |
+
+`<app>` accepts a numeric app id, a `slug.kleap.io` URL, a bare slug, or a
+connected custom domain — resolved server-side in one call
+(`GET /apps/resolve`), same as the MCP `find_app` tool.
+
+### Example: a Claude Code / bash-tool agent
+
+```bash
+# One-shot: build it, publish it, hand back a URL a human can click.
+url=$(npx -y @eliottd/kleap create "a landing page for my podcast" --json | node -e \
+  'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).url))')
+echo "Live: $url"
+
+# Non-blocking flow (agent does other work while it builds):
+npx -y @eliottd/kleap create "a landing page for my podcast" --no-wait --json   # → { task_id, app_id, ... }
+# ... later ...
+npx -y @eliottd/kleap status 4821
+```
+
+Exit codes are always clean: `0` on success, `1` on any failure, with a single
+`✗ <reason>` line on stderr (or `{"error":{"message":...}}` with `--json`) —
+safe to check with `$?` / `try/except subprocess.run(..., check=True)` without
+scraping prose.
+
+### Install once (optional — `npx -y` above needs no install)
+
+```bash
+npm i -g @eliottd/kleap
+kleap auth login
+kleap create "a one-page site for my bakery"
+```
+
+---
+
+## MCP server (for MCP-native clients — Claude Desktop, Cursor, ChatGPT)
+
+Same package, same account, same `~/.kleap/config.json` auth — just a
+different transport for clients that speak [MCP](https://modelcontextprotocol.io)
+instead of a bash tool.
 
 ### Easiest — connect with OAuth, no key
 
@@ -231,9 +318,15 @@ key. An API key is only needed for the local CLI / direct REST use.
 
 **Is it safe?** Yes. Whether you connect with OAuth or an API key, an agent can
 only ever touch *your own* Kleap apps. OAuth tokens and `kleap_live_sk_` keys are
-scoped, sent only to `kleap.co` over HTTPS, and revocable anytime in
-**Settings → API key**. Keys stay in your local client config; nothing else is
-written to disk.
+scoped, sent only over HTTPS, and revocable anytime in **Settings → API key**.
+Credentials from `kleap auth login` / `kleap auth key` are stored in
+`~/.kleap/config.json` (permissions `0600`); **`kleap auth logout` deletes that
+file**. A stored OAuth login is **bound to the origin that issued it** — if
+`KLEAP_API_URL` points anywhere else, the CLI refuses to send the token
+(`CREDENTIAL_ORIGIN_MISMATCH`) so a malicious/typo'd endpoint can't capture it.
+For custom endpoints (e.g. staging), use `KLEAP_API_KEY` or `kleap auth key` —
+an explicit secret you provide is sent where you point it. Details in
+[SECURITY.md](./SECURITY.md).
 
 **How much does it cost?** Connecting is free. Builds and edits use Kleap credits
 (`get_credits` reports your balance) — see [pricing](https://kleap.co/pricing).
@@ -251,7 +344,10 @@ KLEAP_API_KEY=kleap_live_sk_... npx -y @eliottd/kleap
 ```
 
 Override the API base with `KLEAP_API_URL` (default `https://kleap.co`).
-Missing key → the server exits with a clear message.
+Missing key → the server exits with a clear message. Note: a stored OAuth
+login only works against the origin it was issued by — with a custom
+`KLEAP_API_URL`, authenticate via `KLEAP_API_KEY` or `kleap auth key` instead
+(see [SECURITY.md](./SECURITY.md)).
 
 ## Links
 

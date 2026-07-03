@@ -31,9 +31,24 @@ import {
 import { createServer } from "node:http";
 import { randomBytes, createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import { readFileSync, writeFileSync, mkdirSync, chmodSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, chmodSync, rmSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
+import {
+  parseArgs,
+  isNumericId,
+  formatAppLine,
+  formatListLine,
+  formatDomainLine,
+  findApexARecord,
+  HELP,
+} from "./lib/format.mjs";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PKG_VERSION = JSON.parse(
+  readFileSync(join(__dirname, "package.json"), "utf8"),
+).version;
 
 const API_URL = (process.env.KLEAP_API_URL || "https://kleap.co").replace(
   /\/$/,
@@ -56,7 +71,7 @@ function readConfig() {
   }
 }
 function writeConfig(cfg) {
-  mkdirSync(CONFIG_DIR, { recursive: true });
+  mkdirSync(CONFIG_DIR, { recursive: true, mode: 0o700 });
   writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2));
   try {
     chmodSync(CONFIG_PATH, 0o600);
@@ -79,8 +94,14 @@ function openBrowser(url) {
     spawn(cmd, args, { stdio: "ignore", detached: true }).unref();
   } catch {}
 }
-async function oauthPost(path, payload) {
-  const res = await fetch(`${API_URL}${path}`, {
+// SECURITY: `base` is passed explicitly on every call so each credential
+// exchange is pinned to a deliberate origin — authLogin() to the endpoint the
+// user is knowingly signing in to (API_URL), refreshIfNeeded() to the origin
+// the stored credential was ISSUED by (cfg.oauth.api_url), never an env
+// override. Deriving the target from the global API_URL here is what made
+// KLEAP_API_URL exfiltrate stored refresh tokens.
+async function oauthPost(base, path, payload) {
+  const res = await fetch(`${base}${path}`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json" },
     body: JSON.stringify(payload),
@@ -108,7 +129,7 @@ async function authLogin() {
   });
   const redirectUri = `http://127.0.0.1:${server.address().port}/callback`;
   // 2. register a native client (Dynamic Client Registration) for that redirect
-  const reg = await oauthPost("/api/oauth/register", {
+  const reg = await oauthPost(API_URL, "/api/oauth/register", {
     client_name: "Kleap CLI",
     redirect_uris: [redirectUri],
     grant_types: ["authorization_code", "refresh_token"],
@@ -164,7 +185,7 @@ async function authLogin() {
   openBrowser(authUrl);
   const code = await codePromise;
   // 5. exchange the code for tokens (PKCE)
-  const tok = await oauthPost("/api/oauth/token", {
+  const tok = await oauthPost(API_URL, "/api/oauth/token", {
     grant_type: "authorization_code",
     code,
     redirect_uri: redirectUri,
@@ -184,13 +205,23 @@ async function authLogin() {
     "[kleap] Signed in. Token saved to ~/.kleap/config.json — `npx @eliottd/kleap` now works with no API key.",
   );
 }
+// The origin a stored OAuth credential is bound to: the endpoint it was
+// issued by at `kleap auth login` time (older configs predate the field —
+// they were always issued by kleap.co).
+function oauthOrigin(o) {
+  return (o?.api_url || "https://kleap.co").replace(/\/$/, "");
+}
 async function refreshIfNeeded(cfg) {
   const o = cfg.oauth;
   if (!o) return null;
   if (!o.refresh_token || !o.expires_at) return o.access_token || null;
   if (o.expires_at > Date.now() + 60000) return o.access_token; // still valid
   try {
-    const tok = await oauthPost("/api/oauth/token", {
+    // SECURITY: the refresh_token is ONLY ever sent to the origin that issued
+    // it (cfg.oauth.api_url) — never to a KLEAP_API_URL env override. A
+    // malicious/typo'd KLEAP_API_URL must not be able to capture long-lived
+    // credentials or poison the cached access_token.
+    const tok = await oauthPost(oauthOrigin(o), "/api/oauth/token", {
       grant_type: "refresh_token",
       refresh_token: o.refresh_token,
       client_id: o.client_id,
@@ -207,7 +238,25 @@ async function refreshIfNeeded(cfg) {
 async function resolveToken() {
   if (process.env.KLEAP_API_KEY) return process.env.KLEAP_API_KEY; // explicit key wins
   const cfg = readConfig();
-  if (cfg.oauth?.access_token) return await refreshIfNeeded(cfg);
+  if (cfg.oauth?.access_token) {
+    // SECURITY (origin binding): a stored OAuth token is only usable against
+    // the origin it was issued by. If KLEAP_API_URL points anywhere else,
+    // REFUSE — sending the Bearer there would hand the session to an
+    // arbitrary host. Explicit secrets (KLEAP_API_KEY env, `kleap auth key`)
+    // are a different trust model: the user knowingly provided that secret
+    // for whatever endpoint they configure, so those still work below.
+    if (oauthOrigin(cfg.oauth) !== API_URL) {
+      if (cfg.apiKey) return cfg.apiKey; // explicit stored key: fine for custom endpoints
+      const err = new Error(
+        `stored login is bound to ${oauthOrigin(cfg.oauth)} but KLEAP_API_URL is ${API_URL} — ` +
+          "unset KLEAP_API_URL, or use KLEAP_API_KEY / `kleap auth key` for custom endpoints",
+      );
+      err.code = "CREDENTIAL_ORIGIN_MISMATCH";
+      throw err;
+    }
+    return await refreshIfNeeded(cfg);
+  }
+  if (cfg.apiKey) return cfg.apiKey; // `kleap auth key <KEY>` fallback (no browser)
   return null;
 }
 
@@ -245,7 +294,14 @@ async function api(method, path, body, { retries = 2, timeoutMs = 60000 } = {}) 
 
       if (!res.ok) {
         if ((res.status >= 500 || res.status === 429) && attempt < retries) {
-          await sleep(400 * 2 ** attempt);
+          // Honor Retry-After when the server sends one (seconds form,
+          // capped at 60s); otherwise fall back to exponential backoff.
+          const ra = Number(res.headers.get("retry-after"));
+          await sleep(
+            Number.isFinite(ra) && ra > 0
+              ? Math.min(ra, 60) * 1000
+              : 400 * 2 ** attempt,
+          );
           continue;
         }
         const detail =
@@ -572,7 +628,7 @@ rename_app changes only the display name — the live URL never changes. There i
 KEYS & SCOPES: this server can't manage API keys. Users create and SCOPE keys in Kleap (Settings -> MCP / API access): pick Read-only, Build, or Full. Read-only allows only the read tools (list_apps, find_app, get_app, list_app_files, read_files, get_publish_status, check_domain, search_domains, get_credits) and a write tool with a read-only key returns 401/403; Build/Full additionally allow create_app, modify_app, write_files, rename_app, publish_app, connect_domain. So for a read-only agent, tell the user to generate a Read-only key there. Buying domains is never included by default.`;
 
 const server = new Server(
-  { name: "kleap", version: "1.0.10" },
+  { name: "kleap", version: PKG_VERSION },
   { capabilities: { tools: {} }, instructions: INSTRUCTIONS },
 );
 
@@ -606,40 +662,401 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 });
 
 // ── CLI dispatch ────────────────────────────────────────────────────────────
-// `kleap auth <login|logout|status>` runs and exits; no args = the MCP server.
+// Recognized subcommands run and exit with a compact, agent-friendly result
+// (1-3 lines, clean exit codes, optional --json). No args — or `kleap mcp` —
+// starts the stdio MCP server instead; that's what MCP clients expect, and is
+// the unchanged, backward-compatible default.
+const TOP_LEVEL_COMMANDS = [
+  "auth",
+  "create",
+  "edit",
+  "publish",
+  "status",
+  "list",
+  "domains",
+  "screenshot",
+  "mcp",
+  "help",
+  "--help",
+  "-h",
+  "--version",
+  "-v",
+];
 const cmd = process.argv.slice(2);
+
+function emitOk(line, data, json) {
+  if (json) console.log(JSON.stringify(data ?? {}));
+  else console.log(line);
+  process.exit(0);
+}
+// EVERY CLI error must exit through here so `--json` is honored on ALL paths
+// (API errors, usage errors, auth guards, unknown commands) — an agent that
+// JSON.parses the output must never receive bare prose. Convention (same as
+// emitOk): JSON on stdout, plain-text `✗ ...` on stderr; exit code 1 either way.
+function emitErr(message, json, code) {
+  if (json) {
+    console.log(JSON.stringify({ error: { ...(code ? { code } : {}), message } }));
+  } else {
+    console.error(`✗ ${message}`);
+  }
+  process.exit(1);
+}
+// THROWS (never prints/exits) so the dispatch's catch — the only place that
+// knows about --json — does the formatting via emitErr. Printing + exiting
+// directly from here is exactly what caused the "not signed in is always
+// plain text even with --json" bug.
+async function ensureToken() {
+  const t = await resolveToken();
+  if (!t) {
+    const err = new Error(
+      "not signed in — run `kleap auth login` or `kleap auth key <KEY>`",
+    );
+    err.code = "not_authenticated";
+    throw err;
+  }
+  AUTH_TOKEN = t;
+  return t;
+}
+// Resolve an <app> CLI argument (numeric id, kleap.io slug/URL, or a
+// connected custom domain) to a numeric app id via GET /apps/resolve.
+async function resolveAppId(appArg) {
+  if (isNumericId(appArg)) return Number(appArg);
+  const res = await api("GET", `/apps/resolve?q=${encodeURIComponent(appArg)}`);
+  const id = res?.app_id ?? res?.id;
+  if (!id) throw new Error(`app not found: ${appArg}`);
+  return id;
+}
+// Long-poll a create/modify task to a terminal state (bounded overall wait).
+async function pollTask(taskId, { maxWaitMs = 20 * 60 * 1000 } = {}) {
+  const start = Date.now();
+  let task;
+  do {
+    task = await api(
+      "GET",
+      `/tasks/${encodeURIComponent(taskId)}?wait=45`,
+      undefined,
+      { timeoutMs: 60000 },
+    );
+    if (task.status === "completed" || task.status === "failed") return task;
+  } while (Date.now() - start < maxWaitMs);
+  throw new Error(
+    `task ${taskId} still ${task.status} after ${Math.round(maxWaitMs / 60000)}min — check again later: kleap status <app>`,
+  );
+}
+// A completed task's result.production_url can briefly be null while the CF
+// deploy finishes async (result.deployment_status = "pending") — short-poll
+// the app record for it instead of reporting a false "not published".
+async function resolveLiveUrl(appId, task) {
+  const direct = task?.result?.production_url;
+  if (direct) return direct;
+  for (let i = 0; i < 6; i++) {
+    await sleep(3000);
+    const app = await api("GET", `/apps/${appId}`).catch(() => null);
+    if (app?.production_url) return app.production_url;
+  }
+  return null;
+}
+
+async function cliCreate(positional, flags) {
+  const prompt = positional.join(" ").trim();
+  if (!prompt) {
+    throw new Error(
+      'usage: kleap create "<prompt>" [--visibility public|personal] [--webhook <url>] [--no-wait] [--json]',
+    );
+  }
+  await ensureToken();
+  const created = await api("POST", "/apps", {
+    prompt,
+    visibility: flags.visibility || "personal",
+    ...(flags.webhook ? { webhook_url: flags.webhook } : {}),
+  });
+  if (flags.noWait) {
+    return emitOk(
+      `… creating app ${created.app_id} (task ${created.task_id}) — kleap status ${created.app_id}`,
+      created,
+      flags.json,
+    );
+  }
+  const task = await pollTask(created.task_id);
+  if (task.status === "failed") {
+    throw new Error(`create failed [${task.error?.code}]: ${task.error?.message}`);
+  }
+  const url = await resolveLiveUrl(created.app_id, task);
+  emitOk(
+    `✓ created app ${created.app_id} — ${url || `(built, deploy pending — kleap status ${created.app_id})`}`,
+    { app_id: created.app_id, task_id: created.task_id, url, task },
+    flags.json,
+  );
+}
+
+async function cliEdit(positional, flags) {
+  const [appArg, ...rest] = positional;
+  const prompt = rest.join(" ").trim();
+  if (!appArg || !prompt) {
+    throw new Error(
+      'usage: kleap edit <app> "<prompt>" [--webhook <url>] [--no-wait] [--json]',
+    );
+  }
+  await ensureToken();
+  const appId = await resolveAppId(appArg);
+  const created = await api("POST", `/apps/${appId}/messages`, {
+    message: prompt,
+    ...(flags.webhook ? { webhook_url: flags.webhook } : {}),
+  });
+  if (flags.noWait) {
+    return emitOk(
+      `… editing app ${appId} (task ${created.task_id}) — kleap status ${appId}`,
+      created,
+      flags.json,
+    );
+  }
+  const task = await pollTask(created.task_id);
+  if (task.status === "failed") {
+    throw new Error(`edit failed [${task.error?.code}]: ${task.error?.message}`);
+  }
+  const url = await resolveLiveUrl(appId, task);
+  emitOk(
+    `✓ edited app ${appId} — ${url || `(built, deploy pending — kleap status ${appId})`}`,
+    { app_id: appId, task_id: created.task_id, url, task },
+    flags.json,
+  );
+}
+
+async function cliPublish(positional, flags) {
+  const [appArg] = positional;
+  if (!appArg) throw new Error("usage: kleap publish <app> [--no-wait] [--json]");
+  await ensureToken();
+  const appId = await resolveAppId(appArg);
+  const started = await api("POST", `/apps/${appId}/publish`, {});
+  if (flags.noWait) {
+    return emitOk(`… publishing app ${appId}`, started, flags.json);
+  }
+  const deployKey = started.deploy_key;
+  const start = Date.now();
+  let last = started;
+  while (Date.now() - start < 5 * 60 * 1000) {
+    await sleep(4000);
+    const q = deployKey ? `?deploy_key=${encodeURIComponent(deployKey)}` : "";
+    last = await api("GET", `/apps/${appId}/publish${q}`);
+    if (last.status === "published") {
+      return emitOk(
+        `✓ published ${last.production_url}`,
+        { app_id: appId, ...last },
+        flags.json,
+      );
+    }
+  }
+  throw new Error(
+    `not confirmed live after 5min (status: ${last.status}) — recheck: kleap status ${appId}`,
+  );
+}
+
+async function cliStatus(positional, flags) {
+  const [appArg] = positional;
+  if (!appArg) throw new Error("usage: kleap status <app> [--json]");
+  await ensureToken();
+  const appId = await resolveAppId(appArg);
+  const app = await api("GET", `/apps/${appId}`);
+  emitOk(`✓ ${formatAppLine(app)}`, app, flags.json);
+}
+
+async function cliList(positional, flags) {
+  await ensureToken();
+  const params = new URLSearchParams();
+  if (flags.limit) params.set("limit", flags.limit);
+  if (flags.q) params.set("q", flags.q);
+  const qs = params.toString();
+  const res = await api("GET", `/apps${qs ? `?${qs}` : ""}`);
+  if (flags.json) {
+    console.log(JSON.stringify(res));
+    process.exit(0);
+  }
+  const apps = res.apps || [];
+  if (!apps.length) {
+    console.log("(no apps)");
+    process.exit(0);
+  }
+  for (const a of apps) console.log(formatListLine(a));
+  process.exit(0);
+}
+
+async function cliDomainsSearch(positional, flags) {
+  const [query] = positional;
+  if (!query) {
+    throw new Error("usage: kleap domains search <query> [--tlds .com,.io] [--json]");
+  }
+  await ensureToken();
+  const tlds = flags.tlds ? flags.tlds.split(",").map((s) => s.trim()) : undefined;
+  const res = await api("POST", "/domains/search", {
+    query,
+    ...(tlds ? { tlds } : {}),
+  });
+  if (flags.json) {
+    console.log(JSON.stringify(res));
+    process.exit(0);
+  }
+  const available = (res.results || []).filter((r) => r.status === "free");
+  if (!available.length) {
+    console.log("(no available domains found)");
+    process.exit(0);
+  }
+  for (const r of available) console.log(formatDomainLine(r));
+  process.exit(0);
+}
+
+async function cliDomainsConnect(positional, flags) {
+  const [domain, appArg] = positional;
+  if (!domain || !appArg) {
+    throw new Error("usage: kleap domains connect <domain> <app> [--json]");
+  }
+  await ensureToken();
+  const appId = await resolveAppId(appArg);
+  const res = await api("POST", "/domains/connect", { app_id: appId, domain });
+  if (flags.json) {
+    console.log(JSON.stringify(res));
+    process.exit(0);
+  }
+  const ip = findApexARecord(res.dns_config);
+  console.log(
+    `✓ ${domain} pending DNS — point A @ to ${ip || "(see --json)"}, propagation 5-60min`,
+  );
+  process.exit(0);
+}
+
+async function cliScreenshot(positional, flags) {
+  const [appArg] = positional;
+  if (!appArg) throw new Error("usage: kleap screenshot <app> [--json]");
+  await ensureToken();
+  const appId = await resolveAppId(appArg);
+  const res = await api("GET", `/apps/${appId}/screenshot`);
+  emitOk(`✓ ${res.image_url}`, res, flags.json);
+}
+
+if (cmd[0] === "help" || cmd[0] === "--help" || cmd[0] === "-h") {
+  console.log(HELP(PKG_VERSION));
+  process.exit(0);
+}
+if (cmd[0] === "--version" || cmd[0] === "-v") {
+  console.log(PKG_VERSION);
+  process.exit(0);
+}
+
 if (cmd[0] === "auth") {
-  const sub = cmd[1];
+  // Parse flags here too — auth guards and usage errors must honor --json
+  // like every other command (same bug class as the ensureToken one).
+  const { positional: authArgs, flags: authFlags } = parseArgs(cmd.slice(1));
+  const sub = authArgs[0];
   if (sub === "login") {
-    await authLogin();
+    try {
+      await authLogin();
+      process.exit(0);
+    } catch (e) {
+      emitErr(`login failed: ${e?.message || e}`, authFlags.json, "login_failed");
+    }
+  }
+  if (sub === "key") {
+    const key = authArgs[1];
+    if (!key) {
+      emitErr("usage: kleap auth key <KEY>", authFlags.json, "usage");
+    }
+    const c = readConfig();
+    c.apiKey = key;
+    writeConfig(c);
+    console.error("[kleap] API key saved to ~/.kleap/config.json.");
     process.exit(0);
   }
   if (sub === "logout") {
-    const c = readConfig();
-    delete c.oauth;
-    writeConfig(c);
-    console.error("[kleap] Signed out (cleared ~/.kleap/config.json).");
+    // Remove the credential file entirely (not just its keys) — `logout` is
+    // the documented way to revoke local access, so nothing may linger.
+    try {
+      rmSync(CONFIG_PATH, { force: true });
+    } catch {}
+    console.error("[kleap] Signed out (removed ~/.kleap/config.json).");
     process.exit(0);
   }
   if (sub === "status") {
-    const t = await resolveToken();
-    if (!t) {
-      console.error("[kleap] Not signed in. Run `npx @eliottd/kleap auth login`.");
-      process.exit(1);
+    let t;
+    try {
+      t = await resolveToken();
+    } catch (e) {
+      emitErr(e?.message || String(e), authFlags.json, e?.code);
     }
+    if (!t) {
+      emitErr(
+        "not signed in — run `kleap auth login` or `kleap auth key <KEY>`",
+        authFlags.json,
+        "not_authenticated",
+      );
+    }
+    const c = readConfig();
     console.error(
       process.env.KLEAP_API_KEY
         ? "[kleap] Authenticated via KLEAP_API_KEY (env)."
-        : "[kleap] Signed in via OAuth (~/.kleap/config.json).",
+        : c.oauth
+          ? "[kleap] Signed in via OAuth (~/.kleap/config.json)."
+          : "[kleap] Signed in via stored API key (~/.kleap/config.json).",
     );
     process.exit(0);
   }
-  console.error("[kleap] Usage: kleap auth <login|logout|status>");
+  emitErr(
+    "usage: kleap auth <login|key <KEY>|logout|status>",
+    authFlags.json,
+    "usage",
+  );
+}
+
+if (
+  ["create", "edit", "publish", "status", "list", "domains", "screenshot"].includes(
+    cmd[0],
+  )
+) {
+  const [, ...rest] = cmd;
+  const { positional, flags } = parseArgs(rest);
+  try {
+    if (cmd[0] === "create") await cliCreate(positional, flags);
+    else if (cmd[0] === "edit") await cliEdit(positional, flags);
+    else if (cmd[0] === "publish") await cliPublish(positional, flags);
+    else if (cmd[0] === "status") await cliStatus(positional, flags);
+    else if (cmd[0] === "list") await cliList(positional, flags);
+    else if (cmd[0] === "screenshot") await cliScreenshot(positional, flags);
+    else if (cmd[0] === "domains") {
+      const [sub, ...domRest] = positional;
+      if (sub === "search") await cliDomainsSearch(domRest, flags);
+      else if (sub === "connect") await cliDomainsConnect(domRest, flags);
+      else throw new Error("usage: kleap domains <search|connect> ...");
+    }
+  } catch (e) {
+    emitErr(e?.message || String(e), flags.json, e?.code);
+  }
+}
+
+// Unknown BARE-WORD command → fail fast with usage instead of silently
+// trying to speak MCP stdio JSON-RPC on an interactive terminal (protects
+// agents from typos). This path too must honor --json.
+// BACKWARD COMPAT: a first argument starting with "-" (e.g. `kleap --stdio`)
+// falls through to the MCP server, matching 1.1.2 where any non-"auth" argv
+// booted the server — existing MCP client configs with extra flags keep
+// working.
+if (
+  cmd.length > 0 &&
+  cmd[0] !== "mcp" &&
+  !cmd[0].startsWith("-") &&
+  !TOP_LEVEL_COMMANDS.includes(cmd[0])
+) {
+  if (cmd.includes("--json")) {
+    emitErr(`unknown command: ${cmd[0]}`, true, "unknown_command");
+  }
+  console.error(`✗ unknown command: ${cmd[0]}\n\n${HELP(PKG_VERSION)}`);
   process.exit(1);
 }
 
-// Default: run the stdio MCP server. Resolve auth first.
-AUTH_TOKEN = await resolveToken();
+// Default: run the stdio MCP server (`kleap mcp`, or no args — what MCP
+// clients invoke). Resolve auth first; a CREDENTIAL_ORIGIN_MISMATCH must be
+// a clean refusal here too, not an unhandled rejection.
+AUTH_TOKEN = await resolveToken().catch((e) => {
+  console.error(`[kleap-mcp] ${e?.message || e}`);
+  process.exit(1);
+});
 if (!AUTH_TOKEN) {
   console.error(
     "[kleap-mcp] Not signed in. Run `npx @eliottd/kleap auth login` (opens your browser, no API key needed),\n" +
