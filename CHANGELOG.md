@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.0.0
+
+- **Renamed the package `@eliottd/kleap` → `kleap`.** Same CLI, same `kleap` command. Install with `npx kleap` / `npm i -g kleap`. The old `@eliottd/kleap` is deprecated and points here.
+
+
 All notable changes to the Kleap MCP server / CLI.
 
 ## [1.2.1] — 2026-07-03
@@ -68,10 +73,10 @@ All notable changes to the Kleap MCP server / CLI.
   helpers, unit-tested in isolation from network/process concerns.
 
 ## [1.1.2] — 2026-06-24
-- Fix: in-CLI messages reference `npx @eliottd/kleap` (the real install name).
+- Fix: in-CLI messages reference `npx kleap` (the real install name).
 
 ## [1.1.1] — 2026-06-24
-- Docs: install as `@eliottd/kleap` (npm blocked the unscoped name). No code change.
+- Docs: install as `kleap` (npm blocked the unscoped name). No code change.
 
 ## [1.1.0] — 2026-06-23
 - `kleap auth login` — sign in with your browser (OAuth, PKCE, RFC 8252 loopback),
