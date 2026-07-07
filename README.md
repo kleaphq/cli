@@ -40,19 +40,19 @@ its own tool output, not a human terminal), clean exit codes (`0`/`1`), and a
 `--json` flag whenever you want the full structured response.
 
 ```bash
-npx -y kleap auth login              # opens your browser once, no key to paste
-# — or, for CI / non-interactive: npx -y kleap auth key kleap_live_sk_...
+npx -y kleap-cli auth login              # opens your browser once, no key to paste
+# — or, for CI / non-interactive: npx -y kleap-cli auth key kleap_live_sk_...
 
-npx -y kleap create "a one-page site for my bakery, warm palette"
+npx -y kleap-cli create "a one-page site for my bakery, warm palette"
 # ✓ created app 4821 — https://warm-bakery-fold.kleap.io
 
-npx -y kleap edit 4821 "change the headline to 'Roasted slow'"
+npx -y kleap-cli edit 4821 "change the headline to 'Roasted slow'"
 # ✓ edited app 4821 — https://warm-bakery-fold.kleap.io
 
-npx -y kleap publish 4821
+npx -y kleap-cli publish 4821
 # ✓ published https://warm-bakery-fold.kleap.io
 
-npx -y kleap status warm-bakery-fold.kleap.io   # by id, slug, kleap.io URL, or connected custom domain
+npx -y kleap-cli status warm-bakery-fold.kleap.io   # by id, slug, kleap.io URL, or connected custom domain
 # ✓ Bakery (4821) — live: https://warm-bakery-fold.kleap.io
 ```
 
@@ -81,14 +81,14 @@ connected custom domain — resolved server-side in one call
 
 ```bash
 # One-shot: build it, publish it, hand back a URL a human can click.
-url=$(npx -y kleap create "a landing page for my podcast" --json | node -e \
+url=$(npx -y kleap-cli create "a landing page for my podcast" --json | node -e \
   'let d="";process.stdin.on("data",c=>d+=c).on("end",()=>console.log(JSON.parse(d).url))')
 echo "Live: $url"
 
 # Non-blocking flow (agent does other work while it builds):
-npx -y kleap create "a landing page for my podcast" --no-wait --json   # → { task_id, app_id, ... }
+npx -y kleap-cli create "a landing page for my podcast" --no-wait --json   # → { task_id, app_id, ... }
 # ... later ...
-npx -y kleap status 4821
+npx -y kleap-cli status 4821
 ```
 
 Exit codes are always clean: `0` on success, `1` on any failure, with a single
@@ -99,7 +99,7 @@ scraping prose.
 ### Install once (optional — `npx -y` above needs no install)
 
 ```bash
-npm i -g kleap
+npm i -g kleap-cli
 kleap auth login
 kleap create "a one-page site for my bakery"
 ```
@@ -135,11 +135,11 @@ That's it — same 17 tools, no API key. Skip straight to step 3.
 Prefer a local stdio process? Sign in once — no key to generate or paste:
 
 ```
-npx kleap auth login
+npx kleap-cli auth login
 ```
 
 This opens your browser, you authorize Kleap, and the token is saved to
-`~/.kleap/config.json`. After that, `npx -y kleap` just works. (`kleap auth
+`~/.kleap/config.json`. After that, `npx -y kleap-cli` just works. (`kleap auth
 logout` / `kleap auth status` are there too.) Then add a keyless stdio entry to
 your client, e.g. Claude Desktop `claude_desktop_config.json`:
 
@@ -194,7 +194,7 @@ MCP / API access → Generate MCP key** (`kleap_live_sk_...`).
 <summary><b>Claude Code</b> — one command</summary>
 
 ```bash
-claude mcp add kleap -e KLEAP_API_KEY=kleap_live_sk_... -- npx -y kleap
+claude mcp add kleap -e KLEAP_API_KEY=kleap_live_sk_... -- npx -y kleap-cli
 ```
 </details>
 
@@ -237,7 +237,7 @@ Add the hosted connector at **`https://kleap.co/api/mcp`** and authorize with
 OAuth (or paste your `kleap_live_sk_` key). Same tools, no install.
 </details>
 
-> Every stdio config is identical — `npx -y kleap` + a `KLEAP_API_KEY` env var —
+> Every stdio config is identical — `npx -y kleap-cli` + a `KLEAP_API_KEY` env var —
 > so any MCP client works.
 
 **Least-privilege keys:** when you generate a key, pick a scope — **Read-only**
@@ -339,7 +339,7 @@ ChatGPT (hosted connector), and others.
 Node ≥ 18. Run it directly:
 
 ```bash
-KLEAP_API_KEY=kleap_live_sk_... npx -y kleap
+KLEAP_API_KEY=kleap_live_sk_... npx -y kleap-cli
 # → [kleap-mcp] ready (stdio) → https://kleap.co. Tools: list_apps, ...
 ```
 

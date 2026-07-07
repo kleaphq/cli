@@ -2,7 +2,7 @@
 
 ## 2.0.0
 
-- **Renamed the package `@eliottd/kleap` → `kleap`.** Same CLI, same `kleap` command. Install with `npx kleap` / `npm i -g kleap`. The old `@eliottd/kleap` is deprecated and points here.
+- **Renamed the package `kleap-cli` → `kleap`.** Same CLI, same `kleap` command. Install with `npx kleap` / `npm i -g kleap-cli`. The old `kleap-cli` is deprecated and points here.
 
 
 All notable changes to the Kleap MCP server / CLI.
