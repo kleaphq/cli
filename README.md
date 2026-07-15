@@ -1,6 +1,6 @@
 # Kleap — website infrastructure for AI agents
 
-[![CI](https://github.com/Kleap-co/kleap/actions/workflows/ci.yml/badge.svg)](https://github.com/Kleap-co/kleap/actions/workflows/ci.yml)
+[![CI](https://github.com/kleaphq/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/kleaphq/cli/actions/workflows/ci.yml)
 [![CLI](https://img.shields.io/badge/CLI-kleap-16b364)](#cli-for-agent-shells--claude-code-codex-scripts)
 [![MCP](https://img.shields.io/badge/MCP-server-2563eb)](https://modelcontextprotocol.io)
 [![17 tools](https://img.shields.io/badge/tools-17-ff0055)](#tools)
@@ -23,7 +23,7 @@ script, CI) wants the **CLI** — one compact line per call, no JSON-RPC framing
 An MCP-native client (Claude Desktop, Cursor, ChatGPT connectors) wants the
 **MCP server**, which this package also is, unchanged.
 
-![A real, unedited run: an agent writes a page with write_files, publishes, and it is live and serving in seconds.](https://raw.githubusercontent.com/Kleap-co/kleap/main/assets/demo.gif)
+![A real, unedited run: an agent writes a page with write_files, publishes, and it is live and serving in seconds.](https://raw.githubusercontent.com/kleaphq/cli/main/assets/demo.gif)
 
 > *Above: a real run — your agent writes the code with `write_files`, `publish_app` builds & deploys it, and the page is live in seconds. Or just ask Kleap's AI in plain English.*
 
@@ -352,6 +352,6 @@ login only works against the origin it was issued by — with a custom
 ## Links
 
 - Kleap: https://kleap.co · MCP & CLI page: https://kleap.co/mcp
-- Issues & security: https://github.com/Kleap-co/kleap/issues
+- Issues & security: https://github.com/kleaphq/cli/issues
 
 Maintained by the [Kleap](https://kleap.co) team. MIT © Kleap.

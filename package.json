@@ -38,11 +38,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Kleap-co/kleap.git"
+    "url": "git+https://github.com/kleaphq/cli.git"
   },
   "homepage": "https://kleap.co/mcp",
   "bugs": {
-    "url": "https://github.com/Kleap-co/kleap/issues"
+    "url": "https://github.com/kleaphq/cli/issues"
   },
   "license": "MIT",
   "author": "Kleap"
