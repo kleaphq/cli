@@ -5,8 +5,8 @@ Thanks for helping improve the Kleap MCP server.
 ## Run it locally
 
 ```bash
-git clone https://github.com/Kleap-co/kleap
-cd kleap
+git clone https://github.com/kleaphq/cli
+cd cli
 npm install
 KLEAP_API_KEY=kleap_live_sk_... node kleap-mcp-server.mjs
 ```
