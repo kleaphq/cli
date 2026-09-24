@@ -3,7 +3,7 @@
 [![CI](https://github.com/kleaphq/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/kleaphq/cli/actions/workflows/ci.yml)
 [![CLI](https://img.shields.io/badge/CLI-kleap-16b364)](#cli-for-agent-shells--claude-code-codex-scripts)
 [![MCP](https://img.shields.io/badge/MCP-server-2563eb)](https://modelcontextprotocol.io)
-[![17 tools](https://img.shields.io/badge/tools-17-ff0055)](#tools)
+[![26 tools](https://img.shields.io/badge/tools-26-ff0055)](#tools)
 [![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
 > **Your agent builds. Kleap ships it live.**
@@ -126,7 +126,7 @@ https://kleap.co/api/mcp
 - **ChatGPT** — Settings → Connectors → add the URL → authorize with OAuth.
 - **Cursor** — Settings → **MCP** → Add server → paste the URL → authorize.
 
-That's it — same 17 tools, no API key. Skip straight to step 3.
+That's it — all 26 hosted tools are available after OAuth sign-in. Skip straight to step 3.
 
 ---
 
