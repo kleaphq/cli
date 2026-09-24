@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kleap": {
+      "type": "http",
+      "url": "https://kleap.co/api/mcp"
+    }
+  }
+}
