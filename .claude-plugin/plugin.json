@@ -1,0 +1,10 @@
+{
+  "name": "kleap",
+  "description": "Build, edit, publish and manage real websites and web apps on Kleap from Claude Code (remote MCP, OAuth).",
+  "version": "2.0.0",
+  "author": { "name": "Kleap", "url": "https://kleap.co" },
+  "homepage": "https://kleap.co/mcp",
+  "repository": "https://github.com/kleaphq/cli",
+  "license": "MIT",
+  "keywords": ["mcp", "website-builder", "hosting", "publishing"]
+}
