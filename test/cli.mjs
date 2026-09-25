@@ -329,6 +329,12 @@ const server = createServer((req, res) => {
         }
       }
       if (req.method === "POST" && rest === "/query") {
+        if (/^\s*explain/i.test(body.sql)) {
+          return send(res, 400, { error: { code: "UNSUPPORTED_STATEMENT", message: "EXPLAIN is not available through the API" } });
+        }
+        if (/big_table/.test(body.sql)) {
+          return send(res, 200, { command: "SELECT", row_count: 500, rows: [{ id: 1 }], truncated: true });
+        }
         if (/create table/i.test(body.sql) && !/row level security/i.test(body.sql)) {
           return send(res, 422, { error: { code: "RLS_REQUIRED", message: "Public table without RLS", details: { tables: ["notes"] } } });
         }
@@ -865,7 +871,7 @@ console.log("kleap db");
 await test("schema prints one line per table", async () => {
   const r = await run(["db", "schema", "42"]);
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout.trim(), "leads (2 rows): id integer pk, email text not null, status text");
+  assert.equal(r.stdout.trim(), "leads (~2 rows): id integer pk, email text not null, status text");
 });
 await test("rows forwards where/limit/order and prints JSON lines", async () => {
   const r = await run(["db", "rows", "42", "leads", "--where", '{"status":"new"}', "--limit", "1", "--order-by", "id", "--order", "desc"]);
@@ -928,6 +934,24 @@ await test("RLS_REQUIRED → CODE: message + actionable hint", async () => {
   assert.equal(r.status, 1);
   assert.match(r.stderr, /✗ RLS_REQUIRED: Public table without RLS/);
   assert.match(r.stderr, /ENABLE ROW LEVEL SECURITY/);
+});
+await test("UNSUPPORTED_STATEMENT → code + hint pointing at the row commands", async () => {
+  const r = await run(["db", "sql", "42", "EXPLAIN SELECT 1"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /✗ UNSUPPORTED_STATEMENT: EXPLAIN/);
+  assert.match(r.stderr, /kleap db rows/);
+});
+await test("a truncated SQL result says so", async () => {
+  const r = await run(["db", "sql", "42", "select * from big_table"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /truncated by the API row cap/);
+});
+await test("search-console --period is forwarded and validated", async () => {
+  const r = await run(["search-console", "42", "--period", "90d"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(LAST["GET /api/v1/apps/42/search-console"].query.period, "90d");
+  const bad = await run(["search-console", "42", "--period", "1y"]);
+  assert.equal(bad.status, 1);
 });
 await test("DATABASE_NOT_PROVISIONED → --json error with code + hint", async () => {
   const r = await run(["db", "schema", "77", "--json"]);

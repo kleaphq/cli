@@ -66,18 +66,21 @@ custom domain.
   `submission_id`, `submitted_at`, `app_id`). Empty on a new site is normal.
 - `kleap analytics <app> [--period 7d|30d|90d]` — visitors, pageviews, top pages
   (only after the site has been published).
-- `kleap search-console <app>` — Google clicks/impressions/CTR/position. Not
+- `kleap search-console <app> [--period 7d|28d|30d|90d]` — Google clicks/impressions/CTR/position. Not
   connected → `kleap search-console connect <app>` prints a consent link the
   **user** opens (needs a custom domain first).
 
 ## Database (the app's own Postgres)
 
-- `kleap db schema <app>` — tables, row counts, columns.
+- `kleap db schema <app>` — tables, columns and an ESTIMATED row count (`~N`; use `db sql` `count(*)` for an exact one).
 - `kleap db rows <app> <table> [--where '{"status":"new"}'] [--limit 100] [--order-by created_at --order desc]`
 - `kleap db insert <app> <table> '{"email":"a@b.co"}'` (object or array, or `--file rows.json`)
 - `kleap db update <app> <table> --where '{"id":12}' --set '{"status":"done"}'`
 - `kleap db delete <app> <table> --where '{"id":12}'` — `--where` is mandatory; read the rows first.
 - `kleap db sql <app> "select count(*) from leads where status = \$1" --params '["new"]'`
+  — owner-level: always needs `database:write`, even for a SELECT. One statement
+  (no EXPLAIN/SHOW/COPY/CALL → `UNSUPPORTED_STATEMENT`); results are capped at
+  500 rows / 5 MB (a `… truncated` line tells you). To just read, prefer `db rows`.
 
 No database yet (`DATABASE_NOT_PROVISIONED`) → `kleap edit <app> "add a database"` first.
 

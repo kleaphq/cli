@@ -85,7 +85,7 @@ npx -y kleap-cli status warm-bakery-fold.kleap.io   # by id, slug, kleap.io URL,
 | `kleap db rows <app> <table> [--where json] [--limit] [--offset] [--order-by col --order asc\|desc]` | Read rows (one JSON object per line) |
 | `kleap db insert <app> <table> '<json>'\|--file rows.json` | Insert one object or an array (chunked at 500) |
 | `kleap db update <app> <table> --where json --set json` · `db delete <app> <table> --where json` | `--where` is mandatory and non-empty |
-| `kleap db sql <app> "<sql>" [--params json]` | One SQL statement with `$1..$n` params |
+| `kleap db sql <app> "<sql>" [--params json]` | One SQL statement with `$1..$n` params (owner-level: needs `database:write` even for SELECT; 500 rows / 5 MB cap) |
 | `kleap domains buy <domain> [--years N] [--app <app>]` | Creates a Stripe checkout link **the user pays** — never bought until they do |
 | `kleap domains check <domain>` | DNS / connection status (also: did the paid domain get registered?) |
 | `kleap mcp` | Run the MCP stdio server explicitly (same as no args) |

@@ -164,7 +164,7 @@ test("formatSearchConsole — connected numbers", () => {
   );
 });
 test("formatTableLine / formatMessageLine / oneLine", () => {
-  assert.equal(formatTableLine({ name: "t", row_count: 0, columns: [{ name: "id", type: "int", primary_key: true, nullable: false }] }), "t (0 rows): id int pk");
+  assert.equal(formatTableLine({ name: "t", row_count: 0, columns: [{ name: "id", type: "int", primary_key: true, nullable: false }] }), "t (~0 rows): id int pk");
   assert.equal(formatMessageLine({ created_at: "t", role: "user", content: "hi\nthere" }), "t\tuser\thi there");
   assert.equal(oneLine("x".repeat(10), 5), "xxxx…");
 });
@@ -178,6 +178,7 @@ test("hintFor — actionable hints for the fixable codes", () => {
   assert.match(hintFor("DATABASE_NOT_PROVISIONED"), /add a database/);
   assert.match(hintFor("RLS_REQUIRED"), /ROW LEVEL SECURITY/);
   for (const c of ["RATE_LIMITED", "PLAN_REQUIRED", "INSUFFICIENT_CREDITS"]) assert.ok(hintFor(c), c);
+  assert.match(hintFor("UNSUPPORTED_STATEMENT"), /EXPLAIN/);
   assert.equal(hintFor("SOMETHING_ELSE"), null);
 });
 

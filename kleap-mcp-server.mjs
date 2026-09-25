@@ -53,6 +53,7 @@ import {
   formatMessageLine,
   parseJsonArg,
   hintFor,
+  truncationNote,
   HELP,
 } from "./lib/format.mjs";
 
@@ -593,7 +594,7 @@ const TOOLS = [
   {
     name: "get_publish_status",
     description:
-      "Confirm whether an app is actually published and live. status is published | running | queued | not_published. Once published it carries production_url and a `report` (every internal link checked, JSON-LD/sitemap/robots coverage) — read it instead of re-auditing the site. Pass the deploy_key from publish_app and wait (0-45 s) to long-poll.",
+      "Confirm whether an app is actually published and live. status is published | running | deploying (a newer deploy is running — keep polling) | queued | not_published. Once published it carries production_url and a `report` (every internal link checked, JSON-LD/sitemap/robots coverage) — read it instead of re-auditing the site. Pass the deploy_key from publish_app and wait (0-45 s) to long-poll.",
     inputSchema: obj(
       {
         app_id: APP_ID,
@@ -752,8 +753,12 @@ const TOOLS = [
     name: "get_search_console",
     description:
       "How the site performs IN GOOGLE SEARCH (real Search Console data): clicks, impressions, CTR, position, top queries/pages. Data lags ~2 days. If connected/site_selected is false, call connect_search_console.",
-    inputSchema: obj({ app_id: APP_ID }, ["app_id"]),
-    handler: async ({ app_id }) => api("GET", `/apps/${await toAppId(app_id)}/search-console`),
+    inputSchema: obj(
+      { app_id: APP_ID, period: { type: "string", enum: ["7d", "28d", "30d", "90d"], description: "Window (default 28d)." } },
+      ["app_id"],
+    ),
+    handler: async ({ app_id, period }) =>
+      api("GET", `/apps/${await toAppId(app_id)}/search-console${qs({ period })}`),
   },
   {
     name: "connect_search_console",
@@ -824,14 +829,14 @@ const TOOLS = [
   {
     name: "get_database_schema",
     description:
-      "The app's Postgres database (Kleap Database): tables with row_count and columns {name, type, nullable, default, primary_key}. 409 DATABASE_NOT_PROVISIONED means the app has no database yet — ask modify_app to 'add a database' first. Needs database:read.",
+      "The app's Postgres database (Kleap Database): tables with row_count (a planner ESTIMATE, null if never analyzed — use run_database_sql count(*) for an exact number) and columns {name, type, nullable, default, primary_key}. 409 DATABASE_NOT_PROVISIONED means the app has no database yet — ask modify_app to 'add a database' first. Needs database:read.",
     inputSchema: obj({ app_id: APP_ID }, ["app_id"]),
     handler: async ({ app_id }) => api("GET", `/apps/${await toAppId(app_id)}/database`),
   },
   {
     name: "query_database_rows",
     description:
-      "Read rows of one table. where = equality filter object ({\"status\":\"new\"}); limit ≤500; page with offset while has_more. Returns {table, rows, limit, offset, has_more}.",
+      "Read rows of one table. where = equality filter object ({\"status\":\"new\"}); limit ≤500 (default 100); page with offset while has_more. At most 5 MB per call (fewer rows + truncated:true beyond); a row over 256 KB comes back as {__kleap_value_too_large:true, bytes}. Needs database:read. Returns {table, rows, limit, offset, has_more}.",
     inputSchema: obj(
       {
         app_id: APP_ID,
@@ -905,7 +910,7 @@ const TOOLS = [
   {
     name: "run_database_sql",
     description:
-      "Run one SQL statement on the app's database with $1..$n params. A single SELECT needs database:read; anything else database:write. After DDL, a public table without row level security is refused with 422 RLS_REQUIRED — include ALTER TABLE … ENABLE ROW LEVEL SECURITY. Returns {command, row_count, rows}.",
+      "Run SQL on the app's database with $1..$n params. Owner-level access: ALWAYS needs database:write, even for a SELECT (to just read rows, prefer query_database_rows, which only needs database:read). Accepted: one query (SELECT/WITH/VALUES/TABLE), INSERT/UPDATE/DELETE/MERGE (± RETURNING), CREATE/ALTER/DROP/TRUNCATE/GRANT/REVOKE/COMMENT/DO/ANALYZE/REFRESH/SET/RESET; anything else (EXPLAIN, SHOW, COPY, CALL, a multi-statement script with a query or RETURNING…) → 400 UNSUPPORTED_STATEMENT. Rows capped at 500 / 5 MB (truncated:true). Timeout 20 s for SELECT, 60 s otherwise. After DDL, a public table without row level security is refused with 422 RLS_REQUIRED — include ALTER TABLE … ENABLE ROW LEVEL SECURITY. Returns {command, row_count, rows}.",
     inputSchema: obj(
       {
         app_id: APP_ID,
@@ -938,7 +943,7 @@ ON FAILURE (check_task status="failed"): TASK_TIMEOUT / STALE_TASK → retry_tas
 
 AFTER PUBLISH: get_form_submissions = the site's leads (newest first; since= for only new ones). get_analytics = visitors/pageviews. get_search_console = Google search performance (if not connected, connect_search_console returns a consent_url for the USER to open).
 
-DATABASE (the app's Postgres): get_database_schema → query_database_rows / insert_database_rows / update_database_rows / delete_database_rows (where is REQUIRED for update/delete) or run_database_sql. 409 DATABASE_NOT_PROVISIONED → modify_app(app_id, "add a database") first. 422 RLS_REQUIRED → enable row level security in the same SQL.
+DATABASE (the app's Postgres): get_database_schema → query_database_rows / insert_database_rows / update_database_rows / delete_database_rows (where is REQUIRED for update/delete) or run_database_sql (always needs database:write, even for SELECT; 400 UNSUPPORTED_STATEMENT for EXPLAIN/SHOW/COPY/CALL or scripts — use the row tools). Results are capped (500 rows / 5 MB, truncated:true). 409 DATABASE_NOT_PROVISIONED → modify_app(app_id, "add a database") first. 422 RLS_REQUIRED → enable row level security in the same SQL.
 
 DOMAINS: search_domains → buy_domain returns a Stripe checkout_url that the USER must open and pay — it is NOT bought until they pay; confirm afterwards with check_domain. Never say "bought" or "live" before that. connect_domain attaches a domain the user already owns (paid plan) and returns the A records to relay.
 
@@ -1347,8 +1352,10 @@ async function cliSearchConsole(positional, flags) {
     }
     return emitOk(line, res, flags.json);
   }
-  const appId = await appFrom(positional[0], "kleap search-console <app> | kleap search-console connect <app> [--json]");
-  const res = await api("GET", `/apps/${appId}/search-console`);
+  const u = "kleap search-console <app> [--period 7d|28d|30d|90d] | kleap search-console connect <app> [--json]";
+  if (flags.period && !["7d", "28d", "30d", "90d"].includes(flags.period)) throw usage(u);
+  const appId = await appFrom(positional[0], u);
+  const res = await api("GET", `/apps/${appId}/search-console${qs({ period: flags.period })}`);
   return emitOk(`✓ ${formatSearchConsole(res)}`, res, flags.json);
 }
 
@@ -1534,6 +1541,7 @@ async function cliDb(positional, flags) {
     if (flags.json) return finish(JSON.stringify(res));
     const lines = (res.rows || []).map((r) => JSON.stringify(r));
     lines.push(`✓ ${res.command || "OK"} — ${res.row_count ?? (res.rows || []).length} row(s)`);
+    if (truncationNote(res)) lines.push(truncationNote(res));
     return finish(lines.join("\n"));
   }
 
@@ -1558,6 +1566,7 @@ async function cliDb(positional, flags) {
     const rows = res.rows || [];
     if (!rows.length) return finish("(no rows)");
     const lines = rows.map((r) => JSON.stringify(r));
+    if (truncationNote(res)) lines.push(truncationNote(res));
     if (res.has_more) lines.push(`… more rows — next page: --offset ${(res.offset || 0) + rows.length}`);
     return finish(lines.join("\n"));
   }

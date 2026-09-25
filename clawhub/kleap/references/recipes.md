@@ -25,7 +25,7 @@ already handled). An empty list on a new site is normal.
 
 ```bash
 kleap db schema 5310
-# leads (2 rows): id integer pk, email text not null, status text, created_at timestamptz
+# leads (~2 rows): id integer pk, email text not null, status text, created_at timestamptz
 kleap db rows 5310 leads --where '{"status":"new"}' --order-by created_at --order desc --limit 50
 kleap db insert 5310 leads '[{"email":"a@b.co","status":"new"},{"email":"c@d.co","status":"new"}]'
 kleap db update 5310 leads --where '{"id":12}' --set '{"status":"contacted"}'
@@ -42,6 +42,8 @@ kleap db sql 5310 "select status, count(*) from leads group by status"
   `kleap edit <app> "<describe the feature>"` — Kleap's AI wires the schema,
   the policies and the pages together.
 - `DATABASE_NOT_PROVISIONED` → `kleap edit <app> "add a database"`, then retry.
+- `db sql` is owner-level and always needs `database:write` (a read-only key
+  can still use `db schema` and `db rows`). `db schema` row counts are estimates.
 
 ## 3. Buy a domain and connect it
 

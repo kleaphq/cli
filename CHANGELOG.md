@@ -37,6 +37,13 @@ user-paid domain checkout.
   `analytics:read`, `database:read`, `database:write`, `domains:checkout`) — never `domains:purchase`.
 - Requests send `User-Agent: kleap-cli/<version>`; creates/edits carry `metadata.source = "kleap-cli"`.
 - Output is flushed before exit, so large `--json` payloads are never truncated when piped.
+- Aligned with the live API (PR #1696): `db sql` documented as always needing
+  `database:write`; `UNSUPPORTED_STATEMENT` hint; `truncated` results flagged in
+  human output; schema row counts shown as estimates (`~N`); `search-console
+  --period 7d|28d|30d|90d` (and `period` on `get_search_console`, like the hosted tool);
+  `get_publish_status` documents the `deploying` status.
+- Verified live against kleap.co: db schema/rows/insert/update/delete/sql, `domains buy`
+  (Stripe checkout URL returned), and the hosted MCP lists the same 33 tools.
 - Tests: mock routes for every new endpoint + a JSON-RPC test that the MCP server exposes exactly the 33 remote-parity tools.
 
 ## 2.0.0
