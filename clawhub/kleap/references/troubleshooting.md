@@ -9,7 +9,7 @@ the error said. Never retry a non-transient error unchanged.
 | Code | Meaning | What to do |
 |---|---|---|
 | `not_authenticated` | No key and no login on this machine | `kleap auth login`, or set `KLEAP_API_KEY` / `kleap auth key <KEY>` |
-| `UNAUTHORIZED` (401) | Key wrong, revoked or expired | Ask the user for a valid key (kleap.co → Settings → API key) |
+| `UNAUTHORIZED` (401) | Key wrong, revoked or expired | Ask the user for a valid key (https://kleap.co/settings/api-key) |
 | `INSUFFICIENT_SCOPE` (403) | The key predates this feature (`details.required_scope`, e.g. `database:write`, `domains:checkout`, `forms:read`). `db sql` always needs `database:write`, even for a SELECT | The user must **create a new API key with the Full preset** and use it. Retrying with the same key never works. |
 | `INSUFFICIENT_CREDITS` (402) | Not enough credits (create needs ≥5, edit ≥2) | `kleap credits`; ask the user to top up. Do not retry. Deterministic `files …` + `publish` cost no credits. |
 | `PLAN_REQUIRED` (403) | Paid plan needed (e.g. `domains connect`) | Tell the user; they upgrade at https://kleap.co/pricing |

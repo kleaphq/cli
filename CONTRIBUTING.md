@@ -11,7 +11,7 @@ npm install
 KLEAP_API_KEY=kleap_live_sk_... node kleap-mcp-server.mjs
 ```
 
-Get a key at [kleap.co → Settings → API key → MCP / API access](https://kleap.co/settings/api-key).
+Get a key at [kleap.co/settings/api-key](https://kleap.co/settings/api-key).
 
 ## Smoke test
 

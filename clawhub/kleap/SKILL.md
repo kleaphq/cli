@@ -32,7 +32,7 @@ custom domain.
 
 - Interactive: `kleap auth login` (browser, no key to paste).
 - Headless / CI: `KLEAP_API_KEY=kleap_live_sk_...` in the env, or
-  `kleap auth key <KEY>`. Create the key at kleap.co → Settings → API key with
+  `kleap auth key <KEY>`. Create the key at https://kleap.co/settings/api-key with
   the **Full** preset (older keys lack the database/checkout scopes).
 - Check: `kleap auth status` (exit 0 = signed in). `kleap credits` shows the balance.
 

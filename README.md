@@ -170,8 +170,7 @@ your client, e.g. Claude Desktop `claude_desktop_config.json`:
 
 Prefer a key (e.g. for CI or scripting the REST API directly)?
 
-**1. Get an API key** — at [kleap.co](https://kleap.co) → **Settings → API key →
-MCP / API access → Generate MCP key** (`kleap_live_sk_...`).
+**1. Get an API key** — open [kleap.co/settings/api-key](https://kleap.co/settings/api-key) and click **Create my API key** (`kleap_live_sk_...`).
 
 **2. Add Kleap to your AI client:**
 
@@ -339,7 +338,7 @@ key. An API key is only needed for the local CLI / direct REST use.
 
 **Is it safe?** Yes. Whether you connect with OAuth or an API key, an agent can
 only ever touch *your own* Kleap apps. OAuth tokens and `kleap_live_sk_` keys are
-scoped, sent only over HTTPS, and revocable anytime in **Settings → API key**.
+scoped, sent only over HTTPS, and revocable anytime in **https://kleap.co/settings/api-key**.
 Credentials from `kleap auth login` / `kleap auth key` are stored in
 `~/.kleap/config.json` (permissions `0600`); **`kleap auth logout` deletes that
 file**. A stored OAuth login is **bound to the origin that issued it** — if

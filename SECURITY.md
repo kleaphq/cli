@@ -27,7 +27,7 @@ Two credential models, with different trust rules:
 
 To revoke local access, run **`kleap auth logout`** — it deletes
 `~/.kleap/config.json` entirely. Server-side, revoke keys/tokens anytime at
-**kleap.co → Settings → API key**.
+**https://kleap.co/settings/api-key**.
 
 ## Credential origin binding (`KLEAP_API_URL`)
 
@@ -48,5 +48,5 @@ key at an endpoint you don't trust.
 - Keep `kleap_live_sk_...` keys in your MCP client config — never commit them.
 - Keys are shown once and are **scoped to your own account**; an agent can only
   act on apps you own.
-- Rotate or revoke anytime at **kleap.co → Settings → API key**.
+- Rotate or revoke anytime at **https://kleap.co/settings/api-key**.
 - For hosted agents (ChatGPT), prefer the OAuth connector over a pasted key.
