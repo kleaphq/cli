@@ -23,6 +23,8 @@ const HOME = mkdtempSync(join(tmpdir(), "kleap-cli-test-"));
 // origin-binding tests assert that a mismatched OAuth credential produces
 // ZERO outbound requests (the token-exfiltration regression).
 const SEEN = [];
+// Last request body + query per "METHOD /path", for asserting what was sent.
+const LAST = {};
 
 // An isolated $HOME whose ~/.kleap/config.json holds the given contents —
 // simulates a user with stored `kleap auth login` / `kleap auth key` creds.
@@ -59,6 +61,7 @@ const server = createServer((req, res) => {
     try {
       body = raw ? JSON.parse(raw) : {};
     } catch {}
+    LAST[`${req.method} ${path}`] = { body, query: Object.fromEntries(url.searchParams) };
 
     let m;
 
@@ -149,6 +152,9 @@ const server = createServer((req, res) => {
       });
     }
 
+    if (req.method === "POST" && path === "/api/v1/apps/4242/publish") {
+      return send(res, 409, { error: { code: "CONFLICT", message: "A deployment is already running", details: { deploy_key: "dk_running" } } });
+    }
     if (req.method === "POST" && (m = path.match(/^\/api\/v1\/apps\/(\d+)\/publish$/))) {
       return send(res, 202, {
         id: Number(m[1]),
@@ -201,6 +207,158 @@ const server = createServer((req, res) => {
       });
     }
 
+    // ── 2.1.0 routes ──────────────────────────────────────────────────────
+
+    if (req.method === "GET" && path === "/api/v1/account/credits") {
+      return send(res, 200, { credits_balance: 624.6, is_paid: false });
+    }
+    if ((m = path.match(/^\/api\/v1\/apps\/(\d+)\/files$/))) {
+      if (req.method === "GET" && url.searchParams.get("paths")) {
+        const paths = url.searchParams.get("paths").split(",");
+        const known = {
+          "src/pages/index.astro": { content: "<h1>Hi</h1>\n", type: "text" },
+          "src/data/site.json": { content: '{"a":1}', type: "text" },
+          "public/logo.png": { content: "iVBORw0KGgo=", type: "binary" },
+        };
+        return send(res, 200, {
+          files: paths.filter((p) => known[p]).map((p) => ({ path: p, ...known[p], bytes: known[p].content.length })),
+          missing: paths.filter((p) => !known[p]),
+        });
+      }
+      if (req.method === "GET") {
+        return send(res, 200, {
+          files: [
+            { path: "src/pages/index.astro", type: "text", updated_at: "2026-09-25T00:00:00Z" },
+            { path: "public/logo.png", type: "binary", updated_at: "2026-09-25T00:00:00Z" },
+          ],
+          count: 2,
+        });
+      }
+      if (req.method === "PUT") return send(res, 200, { written: body.files.length, message: "Files written." });
+      if (req.method === "PATCH") {
+        if (body.edits?.[0]?.old_string === "NOPE") {
+          return send(res, 422, { error: { code: "EDIT_NOT_FOUND", message: "old_string not found in src/pages/index.astro", details: {}, request_id: "req_e" } });
+        }
+        return send(res, 200, { edited: [{ path: body.edits[0].path, replacements: body.edits[0].replace_all ? 3 : 1 }], replacements: body.edits[0].replace_all ? 3 : 1 });
+      }
+      if (req.method === "DELETE") {
+        return send(res, 200, { deleted: body.paths.filter((p) => p !== "ghost.astro"), message: "Files deleted." });
+      }
+    }
+    if (req.method === "GET" && (m = path.match(/^\/api\/v1\/apps\/(\d+)\/forms$/))) {
+      return send(res, 200, {
+        app_id: Number(m[1]),
+        submissions: [
+          { id: "sub_2", submitted_at: "2026-09-25T10:00:00Z", data: { name: "Ada", email: "ada@example.com" }, ip_address: null, user_agent: null },
+          { id: "sub_1", submitted_at: "2026-09-24T09:00:00Z", data: { name: "Bob", message: "Hello\nthere" }, ip_address: null, user_agent: null },
+        ],
+        count: 2,
+        limit: Number(url.searchParams.get("limit") || 20),
+      });
+    }
+    if (req.method === "GET" && (m = path.match(/^\/api\/v1\/apps\/(\d+)\/analytics$/))) {
+      return send(res, 200, {
+        app_id: Number(m[1]),
+        period: url.searchParams.get("period") || "7d",
+        configured: true,
+        visitors: 12,
+        pageviews: 30,
+        top_pages: [{ path: "/", pageviews: 20 }, { path: "/contact", pageviews: 10 }],
+        referrers: [],
+      });
+    }
+    if (req.method === "GET" && (m = path.match(/^\/api\/v1\/apps\/(\d+)\/search-console$/))) {
+      return send(res, 200, { app_id: 42, period: "28d", clicks: 0, impressions: 0, ctr: 0, position: 0, connected: false, site_selected: false, message: "Google Search Console isn't connected for this site." });
+    }
+    if (req.method === "POST" && (m = path.match(/^\/api\/v1\/apps\/(\d+)\/search-console\/connect$/))) {
+      return send(res, 200, { app_id: 42, connected: false, site_selected: false, custom_domain: "mybakery.com", consent_url: "https://accounts.google.com/o/oauth2/auth?x=1", expires_in_minutes: 60 });
+    }
+    if (req.method === "GET" && (m = path.match(/^\/api\/v1\/apps\/(\d+)\/messages$/))) {
+      return send(res, 200, { messages: [
+        { id: 1, role: "user", content: "a bakery site", created_at: "2026-09-25T00:00:00Z" },
+        { id: 2, role: "assistant", content: "Done.\nYour site is live.", created_at: "2026-09-25T00:01:00Z" },
+      ] });
+    }
+    if (req.method === "PATCH" && (m = path.match(/^\/api\/v1\/apps\/(\d+)$/))) {
+      return send(res, 200, { id: Number(m[1]), name: body.name, slug: "bakery" });
+    }
+    if (req.method === "POST" && (m = path.match(/^\/api\/v1\/apps\/(\d+)\/wake$/))) {
+      return send(res, 200, { success: true, preview_url: "https://3000-sbx.preview.kleap.co", message: "Sandbox is waking up." });
+    }
+    if (req.method === "POST" && (m = path.match(/^\/api\/v1\/apps\/(\d+)\/generate-image$/))) {
+      return send(res, 200, { path: body.path, bytes: 51200, model: body.hd ? "flux-2-dev" : "flux-2-klein-9b", size: "768x768" });
+    }
+    if ((m = path.match(/^\/api\/v1\/tasks\/([^/]+)\/retry$/)) && req.method === "POST") {
+      return send(res, 201, { task_id: "task_retry_1", app_id: 99, poll_url: "/api/v1/tasks/task_retry_1" });
+    }
+    // Database. App 77 has no database; app 78's key lacks the scope.
+    if ((m = path.match(/^\/api\/v1\/apps\/(\d+)\/database(\/.*)?$/))) {
+      const id = Number(m[1]);
+      const rest = m[2] || "";
+      if (id === 77) {
+        return send(res, 409, { error: { code: "DATABASE_NOT_PROVISIONED", message: "This app has no database", details: {}, request_id: "req_db" } });
+      }
+      if (id === 78) {
+        return send(res, 403, { error: { code: "INSUFFICIENT_SCOPE", message: "This API key lacks the database:write scope", details: { required_scope: "database:write" }, request_id: "req_sc" } });
+      }
+      if (req.method === "GET" && rest === "") {
+        return send(res, 200, { provisioned: true, tables: [
+          { name: "leads", row_count: 2, columns: [
+            { name: "id", type: "integer", nullable: false, default: null, primary_key: true },
+            { name: "email", type: "text", nullable: false, default: null, primary_key: false },
+            { name: "status", type: "text", nullable: true, default: "'new'", primary_key: false },
+          ] },
+        ] });
+      }
+      let t;
+      if ((t = rest.match(/^\/tables\/([^/]+)\/rows$/))) {
+        const table = decodeURIComponent(t[1]);
+        if (req.method === "GET") {
+          const lim = Number(url.searchParams.get("limit") || 100);
+          const rows = [{ id: 1, email: "a@x.co", status: "new" }, { id: 2, email: "b@x.co", status: "new" }].slice(0, lim);
+          return send(res, 200, { table, rows, limit: lim, offset: Number(url.searchParams.get("offset") || 0), has_more: lim < 2 });
+        }
+        if (req.method === "POST") return send(res, 200, { table, inserted: body.rows.length, rows: body.rows.map((r, i) => ({ id: 10 + i, ...r })) });
+        if (req.method === "PATCH") {
+          if (!body.where || !Object.keys(body.where).length) return send(res, 400, { error: { code: "VALIDATION_ERROR", message: "where is required" } });
+          return send(res, 200, { table, updated: 1, rows: [{ id: 1, ...body.set }] });
+        }
+        if (req.method === "DELETE") {
+          if (!body.where || !Object.keys(body.where).length) return send(res, 400, { error: { code: "VALIDATION_ERROR", message: "where is required" } });
+          return send(res, 200, { table, deleted: 1 });
+        }
+      }
+      if (req.method === "POST" && rest === "/query") {
+        if (/create table/i.test(body.sql) && !/row level security/i.test(body.sql)) {
+          return send(res, 422, { error: { code: "RLS_REQUIRED", message: "Public table without RLS", details: { tables: ["notes"] } } });
+        }
+        return send(res, 200, { command: "SELECT", row_count: 1, rows: [{ n: body.params?.[0] ?? 1 }] });
+      }
+    }
+    // Domains
+    if (req.method === "POST" && path === "/api/v1/domains/checkout") {
+      if (body.domain === "taken.com") {
+        return send(res, 409, { error: { code: "DOMAIN_UNAVAILABLE", message: "taken.com is not available" } });
+      }
+      return send(res, 201, {
+        checkout_url: "https://checkout.stripe.com/c/pay/cs_test_1",
+        domain: body.domain,
+        years: body.years || 1,
+        price: 14.99,
+        currency: "USD",
+        expires_at: "2026-09-26T00:00:00Z",
+      });
+    }
+    if (req.method === "POST" && path === "/api/v1/domains/purchase") {
+      return send(res, 500, { error: { code: "FORBIDDEN_IN_TESTS", message: "purchase must never be called" } });
+    }
+    if (req.method === "GET" && (m = path.match(/^\/api\/v1\/domains\/([^/]+)\/check$/))) {
+      const d = decodeURIComponent(m[1]);
+      if (d === "unknown.com") return send(res, 404, { error: { code: "NOT_FOUND", message: "Domain not registered" } });
+      if (d === "live.com") return send(res, 200, { status: "active", domain: d, url: `https://${d}`, tls: "provisioning" });
+      return send(res, 200, { status: "pending_dns", domain: d, message: "A record not found yet. DNS propagation can take 5–60 min." });
+    }
+
     send(res, 404, { error: { code: "NOT_FOUND", message: `no mock route for ${req.method} ${path}` } });
   });
 });
@@ -214,11 +372,13 @@ const BASE_URL = `http://127.0.0.1:${server.address().port}`;
 // loop until the child exits — but the child can't get an HTTP response
 // until that same event loop is free to run the mock server's callback.
 // That's a guaranteed deadlock, not a network/sandbox issue.
-function run(args, { key = "test_key", home = HOME } = {}) {
+function run(args, { key = "test_key", home = HOME, input } = {}) {
   const env = { PATH: process.env.PATH, HOME: home, KLEAP_API_URL: BASE_URL };
   if (key) env.KLEAP_API_KEY = key;
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [BIN, ...args], { cwd: root, env });
+    if (input !== undefined) child.stdin.end(input);
+    else child.stdin.end();
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => (stdout += d));
@@ -493,6 +653,415 @@ await test("auth status --json with no credentials → parseable JSON, code=not_
   assert.equal(r.status, 1);
   const obj = JSON.parse(r.stdout.trim());
   assert.equal(obj.error.code, "not_authenticated");
+});
+
+// ── 2.1.0 commands ───────────────────────────────────────────────────────────
+const TMP = mkdtempSync(join(tmpdir(), "kleap-cli-files-"));
+const json = (r) => JSON.parse(r.stdout.trim());
+
+console.log("kleap credits");
+await test("prints balance + plan", async () => {
+  const r = await run(["credits"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "✓ 624.6 credits — free plan");
+});
+await test("--json returns the API object", async () => {
+  const r = await run(["credits", "--json"]);
+  assert.deepEqual(json(r), { credits_balance: 624.6, is_paid: false });
+});
+
+console.log("kleap files");
+await test("ls prints one path per line (resolving a slug first)", async () => {
+  const r = await run(["files", "ls", "bakery"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.stdout.trim().split("\n"), ["src/pages/index.astro", "public/logo.png"]);
+});
+await test("cat of ONE text file prints its raw content", async () => {
+  const r = await run(["files", "cat", "42", "src/pages/index.astro"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout, "<h1>Hi</h1>\n");
+});
+await test("cat of several files prints ==> headers; binaries are not dumped", async () => {
+  const r = await run(["files", "cat", "42", "src/data/site.json", "public/logo.png"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /==> src\/data\/site.json <==\n\{"a":1\}/);
+  assert.match(r.stdout, /==> public\/logo.png <==\n\(binary file/);
+});
+await test("cat of a missing path → exit 1 naming it", async () => {
+  const r = await run(["files", "cat", "42", "src/pages/index.astro", "nope.astro"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /not found: nope.astro/);
+});
+await test("cat --json returns files + missing", async () => {
+  const r = await run(["files", "cat", "42", "src/pages/index.astro", "--json"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(json(r).files[0].path, "src/pages/index.astro");
+});
+await test("write --content sends UTF-8 text (no encoding field)", async () => {
+  const r = await run(["files", "write", "42", "src/pages/about.astro", "--content", "<h1>About</h1>"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /✓ wrote src\/pages\/about.astro \(14 bytes\) to app 42 — deploy it: kleap publish 42/);
+  assert.deepEqual(LAST["PUT /api/v1/apps/42/files"].body.files, [{ path: "src/pages/about.astro", content: "<h1>About</h1>" }]);
+});
+await test("write --file of a .png sends base64 automatically", async () => {
+  const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff]);
+  const local = join(TMP, "logo.png");
+  writeFileSync(local, png);
+  const r = await run(["files", "write", "42", "public/logo.png", "--file", local]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /base64/);
+  const f = LAST["PUT /api/v1/apps/42/files"].body.files[0];
+  assert.equal(f.encoding, "base64");
+  assert.deepEqual(Buffer.from(f.content, "base64"), png);
+});
+await test("write --stdin reads the content from stdin", async () => {
+  const r = await run(["files", "write", "42", "src/data/x.json", "--stdin"], { input: '{"from":"stdin"}' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(LAST["PUT /api/v1/apps/42/files"].body.files[0].content, '{"from":"stdin"}');
+});
+await test("write refuses >512 KB locally, before any request", async () => {
+  const local = join(TMP, "big.txt");
+  writeFileSync(local, Buffer.alloc(600 * 1024, 97));
+  const r = await run(["files", "write", "42", "src/big.txt", "--file", local, "--json"]);
+  assert.equal(r.status, 1);
+  assert.equal(json(r).error.code, "FILE_TOO_LARGE");
+});
+await test("write with no content source → usage error", async () => {
+  const r = await run(["files", "write", "42", "src/x.astro"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /exactly one of --file, --stdin, --content/);
+});
+await test("edit sends old_string/new_string/replace_all", async () => {
+  const r = await run(["files", "edit", "42", "src/pages/index.astro", "--find", "Hi", "--replace", "Hello", "--all"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /✓ edited src\/pages\/index.astro \(3 replacements\)/);
+  assert.deepEqual(LAST["PATCH /api/v1/apps/42/files"].body.edits, [
+    { path: "src/pages/index.astro", old_string: "Hi", new_string: "Hello", replace_all: true },
+  ]);
+});
+await test("edit accepts an empty --replace (deletion of the matched text)", async () => {
+  const r = await run(["files", "edit", "42", "src/pages/index.astro", "--find", "Hi", "--replace", ""]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(LAST["PATCH /api/v1/apps/42/files"].body.edits[0].new_string, "");
+});
+await test("edit API error shows CODE: message", async () => {
+  const r = await run(["files", "edit", "42", "src/pages/index.astro", "--find", "NOPE", "--replace", "x"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /✗ EDIT_NOT_FOUND: old_string not found/);
+});
+await test("rm deletes and reminds to publish", async () => {
+  const r = await run(["files", "rm", "42", "src/pages/old.astro", "ghost.astro"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /✓ deleted src\/pages\/old.astro from app 42/);
+  assert.deepEqual(LAST["DELETE /api/v1/apps/42/files"].body, { paths: ["src/pages/old.astro", "ghost.astro"] });
+});
+await test("unknown files subcommand → usage", async () => {
+  const r = await run(["files", "mv", "42"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /usage: kleap files <ls\|cat\|write\|edit\|rm>/);
+});
+
+console.log("kleap forms / analytics / search-console / messages");
+await test("forms prints one line per submission, newest first", async () => {
+  const r = await run(["forms", "42"]);
+  assert.equal(r.status, 0, r.stderr);
+  const lines = r.stdout.trim().split("\n");
+  assert.equal(lines.length, 2);
+  assert.equal(lines[0], "2026-09-25T10:00:00Z\tname=Ada · email=ada@example.com");
+  assert.equal(lines[1], "2026-09-24T09:00:00Z\tname=Bob · message=Hello there");
+});
+await test("forms --json is flattened (data fields + submission_id/submitted_at/app_id)", async () => {
+  const r = await run(["forms", "42", "--since", "2026-09-01", "--limit", "5", "--json"]);
+  assert.equal(r.status, 0, r.stderr);
+  const obj = json(r);
+  assert.equal(obj.count, 2);
+  assert.deepEqual(obj.submissions[0], { name: "Ada", email: "ada@example.com", submission_id: "sub_2", submitted_at: "2026-09-25T10:00:00Z", app_id: 42 });
+  assert.equal(LAST["GET /api/v1/apps/42/forms"].query.since, "2026-09-01T00:00:00.000Z");
+  assert.equal(LAST["GET /api/v1/apps/42/forms"].query.limit, "5");
+});
+await test("forms --since garbage → usage error, no request", async () => {
+  const r = await run(["forms", "42", "--since", "yesterday-ish"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /ISO 8601/);
+});
+await test("analytics one-liner with top pages, --period forwarded", async () => {
+  const r = await run(["analytics", "42", "--period", "30d"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "✓ 30d: 12 visitors, 30 pageviews — top: / (20), /contact (10)");
+});
+await test("analytics rejects an unknown period", async () => {
+  const r = await run(["analytics", "42", "--period", "1y"]);
+  assert.equal(r.status, 1);
+});
+await test("search-console reports not connected + the next step", async () => {
+  const r = await run(["search-console", "42"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /not connected/);
+});
+await test("search-console connect prints the consent link for the user", async () => {
+  const r = await run(["search-console", "connect", "42"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /user must open this link.*https:\/\/accounts.google.com/);
+});
+await test("messages prints role + one-line content", async () => {
+  const r = await run(["messages", "42"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.stdout.trim().split("\n"), [
+    "2026-09-25T00:00:00Z\tuser\ta bakery site",
+    "2026-09-25T00:01:00Z\tassistant\tDone. Your site is live.",
+  ]);
+});
+
+console.log("kleap rename / wake / image");
+await test("rename joins the words of the new name", async () => {
+  const r = await run(["rename", "42", "Pain", "&", "Sel"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), '✓ renamed app 42 to "Pain & Sel" (URL unchanged)');
+});
+await test("wake prints the preview URL", async () => {
+  const r = await run(["wake", "42"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /https:\/\/3000-sbx.preview.kleap.co/);
+});
+await test("image sends path/prompt/hd and reminds to publish", async () => {
+  const r = await run(["image", "42", "public/hero.webp", "a warm bakery", "at dawn", "--hd"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "✓ generated public/hero.webp (50 KB) — deploy it: kleap publish 42");
+  assert.deepEqual(LAST["POST /api/v1/apps/42/generate-image"].body, { path: "public/hero.webp", prompt: "a warm bakery at dawn", hd: true });
+});
+await test("image refuses a path outside public/ or a wrong extension", async () => {
+  const r = await run(["image", "42", "src/hero.gif", "x"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /must start with public\//);
+});
+
+console.log("kleap task");
+await test("task <id> → one-line completed status", async () => {
+  const r = await run(["task", "task_create_1"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "✓ task task_create_1 completed — app 99 https://freshbakery.kleap.io");
+});
+await test("task <failed id> → exit 1 with code + the retry command", async () => {
+  const r = await run(["task", "task_fail_1", "--json"]);
+  assert.equal(r.status, 1);
+  const e = json(r).error;
+  assert.equal(e.code, "TASK_FAILED");
+  assert.match(e.message, /kleap task retry task_fail_1/);
+  assert.equal(e.task.status, "failed");
+});
+await test("task retry <id> → new task id", async () => {
+  const r = await run(["task", "retry", "task_fail_1"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /retrying as task task_retry_1/);
+});
+await test("task retry <id> --wait follows the NEW task to completion", async () => {
+  const r = await run(["task", "retry", "task_fail_1", "--wait", "--json"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(json(r).task_id, "task_retry_1");
+  assert.equal(json(r).status, "completed");
+});
+
+console.log("kleap db");
+await test("schema prints one line per table", async () => {
+  const r = await run(["db", "schema", "42"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "leads (2 rows): id integer pk, email text not null, status text");
+});
+await test("rows forwards where/limit/order and prints JSON lines", async () => {
+  const r = await run(["db", "rows", "42", "leads", "--where", '{"status":"new"}', "--limit", "1", "--order-by", "id", "--order", "desc"]);
+  assert.equal(r.status, 0, r.stderr);
+  const lines = r.stdout.trim().split("\n");
+  assert.deepEqual(JSON.parse(lines[0]), { id: 1, email: "a@x.co", status: "new" });
+  assert.match(lines[1], /more rows — next page: --offset 1/);
+  const q = LAST["GET /api/v1/apps/42/database/tables/leads/rows"].query;
+  assert.deepEqual(q, { limit: "1", order_by: "id", order: "desc", where: '{"status":"new"}' });
+});
+await test("rows with invalid --where JSON → usage error naming the flag", async () => {
+  const r = await run(["db", "rows", "42", "leads", "--where", "{status:new}", "--json"]);
+  assert.equal(r.status, 1);
+  assert.match(json(r).error.message, /--where is not valid JSON/);
+});
+await test("insert accepts an object and wraps it in rows[]", async () => {
+  const r = await run(["db", "insert", "42", "leads", '{"email":"c@x.co"}']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "✓ inserted 1 row(s) into leads");
+  assert.deepEqual(LAST["POST /api/v1/apps/42/database/tables/leads/rows"].body, { rows: [{ email: "c@x.co" }] });
+});
+await test("insert --file with an array, chunked at 500 per call", async () => {
+  const local = join(TMP, "rows.json");
+  writeFileSync(local, JSON.stringify(Array.from({ length: 501 }, (_, i) => ({ email: `u${i}@x.co` }))));
+  const before = SEEN.filter((s) => s === "POST /api/v1/apps/42/database/tables/leads/rows").length;
+  const r = await run(["db", "insert", "42", "leads", "--file", local, "--json"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(json(r).inserted, 501);
+  const after = SEEN.filter((s) => s === "POST /api/v1/apps/42/database/tables/leads/rows").length;
+  assert.equal(after - before, 2);
+});
+await test("update sends where + set", async () => {
+  const r = await run(["db", "update", "42", "leads", "--where", '{"id":1}', "--set", '{"status":"done"}']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "✓ updated 1 row(s) in leads");
+  assert.deepEqual(LAST["PATCH /api/v1/apps/42/database/tables/leads/rows"].body, { where: { id: 1 }, set: { status: "done" } });
+});
+await test("update/delete WITHOUT --where are refused locally (never touch every row)", async () => {
+  const before = SEEN.length;
+  const r1 = await run(["db", "update", "42", "leads", "--set", '{"status":"x"}']);
+  const r2 = await run(["db", "delete", "42", "leads", "--where", "{}"]);
+  assert.equal(r1.status, 1);
+  assert.equal(r2.status, 1);
+  assert.match(r1.stderr, /non-empty where/);
+  assert.equal(SEEN.length, before, "no request may be sent");
+});
+await test("delete sends where and reports the count", async () => {
+  const r = await run(["db", "delete", "42", "leads", "--where", '{"id":2}']);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "✓ deleted 1 row(s) from leads");
+});
+await test("sql sends sql + params and prints rows then a summary", async () => {
+  const r = await run(["db", "sql", "42", "select $1::int as n", "--params", "[7]"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(r.stdout.trim().split("\n"), ['{"n":7}', "✓ SELECT — 1 row(s)"]);
+  assert.deepEqual(LAST["POST /api/v1/apps/42/database/query"].body, { sql: "select $1::int as n", params: [7] });
+});
+await test("RLS_REQUIRED → CODE: message + actionable hint", async () => {
+  const r = await run(["db", "sql", "42", "create table notes (id int)"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /✗ RLS_REQUIRED: Public table without RLS/);
+  assert.match(r.stderr, /ENABLE ROW LEVEL SECURITY/);
+});
+await test("DATABASE_NOT_PROVISIONED → --json error with code + hint", async () => {
+  const r = await run(["db", "schema", "77", "--json"]);
+  assert.equal(r.status, 1);
+  const e = json(r).error;
+  assert.equal(e.code, "DATABASE_NOT_PROVISIONED");
+  assert.equal(e.status, 409);
+  assert.equal(e.request_id, "req_db");
+  assert.match(e.hint, /add a database/);
+});
+await test("INSUFFICIENT_SCOPE → tells the user to create a Full key, keeps details.required_scope", async () => {
+  const r = await run(["db", "insert", "78", "leads", '{"a":1}', "--json"]);
+  assert.equal(r.status, 1);
+  const e = json(r).error;
+  assert.equal(e.code, "INSUFFICIENT_SCOPE");
+  assert.equal(e.details.required_scope, "database:write");
+  assert.match(e.hint, /Full preset/);
+});
+
+console.log("kleap domains buy / check");
+await test("buy prints the checkout URL and says it is NOT bought", async () => {
+  const r = await run(["domains", "buy", "MyBakery.com", "--years", "2", "--app", "bakery"]);
+  assert.equal(r.status, 0, r.stderr);
+  const [l1, l2] = r.stdout.trim().split("\n");
+  assert.equal(l1, "→ checkout for mybakery.com (14.99 USD, 2 years): https://checkout.stripe.com/c/pay/cs_test_1");
+  assert.match(l2, /NOT bought yet — the user must open this link and pay/);
+  assert.match(l2, /connected to app 42/);
+  assert.deepEqual(LAST["POST /api/v1/domains/checkout"].body, { domain: "mybakery.com", years: 2, app_id: 42 });
+});
+await test("buy --json flags paid:false / requires_user_payment:true", async () => {
+  const r = await run(["domains", "buy", "mybakery.com", "--json"]);
+  assert.equal(r.status, 0, r.stderr);
+  const o = json(r);
+  assert.equal(o.checkout_url, "https://checkout.stripe.com/c/pay/cs_test_1");
+  assert.equal(o.paid, false);
+  assert.equal(o.requires_user_payment, true);
+});
+await test("buy NEVER calls /domains/purchase", async () => {
+  assert.ok(!SEEN.includes("POST /api/v1/domains/purchase"), "the CLI called /domains/purchase");
+});
+await test("buy of an unavailable domain → exit 1 with the API code", async () => {
+  const r = await run(["domains", "buy", "taken.com"]);
+  assert.equal(r.status, 1);
+  assert.match(r.stderr, /DOMAIN_UNAVAILABLE/);
+});
+await test("search normalizes a phrase to one label and dots the TLDs", async () => {
+  const r = await run(["domains", "search", "Café", "Lumière", "--tlds", "com,.ch"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.deepEqual(LAST["POST /api/v1/domains/search"].body, { query: "cafelumiere", tlds: [".com", ".ch"] });
+});
+await test("check → active / pending / not registered", async () => {
+  const a = await run(["domains", "check", "live.com"]);
+  assert.equal(a.stdout.trim(), "✓ live.com active — https://live.com (TLS provisioning)");
+  const p = await run(["domains", "check", "mybakery.com"]);
+  assert.match(p.stdout, /… mybakery.com pending DNS — A record not found yet/);
+  const n = await run(["domains", "check", "unknown.com"]);
+  assert.equal(n.status, 1);
+  assert.match(n.stderr, /NOT_FOUND: Domain not registered/);
+});
+
+console.log("publish follows an already-running deploy (409 CONFLICT)");
+await test("CONFLICT reuses details.deploy_key instead of failing", async () => {
+  const r = await run(["publish", "4242"]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.equal(r.stdout.trim(), "✓ published https://bakery.kleap.io");
+  assert.equal(LAST["GET /api/v1/apps/4242/publish"].query.deploy_key, "dk_running");
+});
+
+console.log("MCP stdio server (JSON-RPC against the mock)");
+function mcpSession(requests) {
+  return new Promise((resolve) => {
+    const env = { PATH: process.env.PATH, HOME, KLEAP_API_URL: BASE_URL, KLEAP_API_KEY: "test_key" };
+    const child = spawn(process.execPath, [BIN], { cwd: root, env });
+    let buf = "";
+    const out = [];
+    const want = requests.filter((r) => r.id != null).length;
+    const timer = setTimeout(() => child.kill("SIGKILL"), 15000);
+    child.stdout.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 1);
+        if (line.trim()) out.push(JSON.parse(line));
+        if (out.filter((o) => o.id != null).length >= want) {
+          clearTimeout(timer);
+          child.kill();
+          resolve(out);
+        }
+      }
+    });
+    for (const r of requests) child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...r })}\n`);
+  });
+}
+const INIT = [
+  { id: 0, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "t", version: "1" } } },
+  { method: "notifications/initialized" },
+];
+const call = (id, name, args) => ({ id, method: "tools/call", params: { name, arguments: args } });
+const REMOTE_PARITY = [
+  "create_app", "modify_app", "check_task", "retry_task", "publish_app", "get_publish_status",
+  "list_apps", "get_app", "find_app", "rename_app", "get_screenshot", "wake_app", "generate_image",
+  "list_app_files", "read_files", "write_files", "edit_files", "delete_files",
+  "get_form_submissions", "get_analytics", "get_search_console", "connect_search_console", "get_credits",
+  "search_domains", "check_domain", "connect_domain", "buy_domain",
+  "get_database_schema", "query_database_rows", "insert_database_rows", "update_database_rows",
+  "delete_database_rows", "run_database_sql",
+];
+await test("tools/list exposes exactly the remote-parity tool set (33 tools)", async () => {
+  const out = await mcpSession([...INIT, { id: 1, method: "tools/list" }]);
+  const names = out.find((o) => o.id === 1).result.tools.map((t) => t.name).sort();
+  assert.deepEqual(names, [...REMOTE_PARITY].sort());
+});
+await test("database + buy_domain + edit_files tools hit the right routes", async () => {
+  const out = await mcpSession([
+    ...INIT,
+    call(1, "query_database_rows", { app_id: 42, table: "leads", where: { status: "new" }, limit: 5 }),
+    call(2, "buy_domain", { domain: "mybakery.com", app_id: 42 }),
+    call(3, "delete_database_rows", { app_id: 42, table: "leads", where: {} }),
+    call(4, "get_database_schema", { app_id: 77 }),
+    call(5, "edit_files", { app_id: 42, edits: [{ path: "a.astro", old_string: "x", new_string: "y" }] }),
+    call(6, "insert_database_rows", { app_id: "bakery", table: "leads", rows: [{ email: "m@x.co" }] }),
+  ]);
+  const r = (id) => out.find((o) => o.id === id).result;
+  assert.equal(JSON.parse(r(1).content[0].text).table, "leads");
+  assert.equal(JSON.parse(r(2).content[0].text).checkout_url, "https://checkout.stripe.com/c/pay/cs_test_1");
+  assert.equal(r(3).isError, true);
+  assert.match(r(3).content[0].text, /non-empty where/);
+  assert.equal(r(4).isError, true);
+  assert.match(r(4).content[0].text, /DATABASE_NOT_PROVISIONED/);
+  assert.match(r(4).content[0].text, /Hint: .*add a database/);
+  assert.equal(JSON.parse(r(5).content[0].text).replacements, 1);
+  assert.equal(JSON.parse(r(6).content[0].text).inserted, 1);
+  assert.ok(!SEEN.includes("POST /api/v1/domains/purchase"));
 });
 
 console.log("top-level");

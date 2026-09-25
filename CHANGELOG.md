@@ -1,8 +1,47 @@
 # Changelog
 
+## 2.1.0 — 2026-09-25
+
+Full parity with the hosted Kleap MCP server, plus the app database and
+user-paid domain checkout.
+
+- **New CLI commands** (all accept `--json`, exit `0`/`1`, `<app>` = id / slug / URL / custom domain):
+  - `files ls|cat|write|edit|rm` — read and change a site's source deterministically.
+    `files write` takes `--file`, `--stdin` or `--content`; binary extensions
+    (images, fonts, PDF, video…) are sent base64 automatically; >512 KB is refused locally.
+  - `forms <app> [--since ISO] [--limit N]` — form submissions (leads), newest first;
+    `--json` is flattened (`data` fields + `submission_id`, `submitted_at`, `app_id`).
+  - `analytics <app> [--period 7d|30d|90d]`, `search-console <app>`, `search-console connect <app>`.
+  - `db schema|rows|insert|update|delete|sql` — the app's Postgres. `update`/`delete`
+    refuse an empty `--where` before any request; inserts are chunked at 500 rows.
+  - `domains buy <domain> [--years N] [--app <app>]` — creates a Stripe checkout link
+    **the user pays**; the CLI prints it and says the domain is not bought yet.
+    `domains check <domain>`. (`/domains/purchase` is never called.)
+  - `task <task_id> [--wait]`, `task retry <task_id> [--wait]`, `rename`, `wake`,
+    `image <app> <public/x.webp> "<prompt>" [--hd]`, `credits`, `messages <app>`.
+- **MCP stdio server: 33 tools**, named like the hosted server — adds `get_screenshot`,
+  `wake_app`, `generate_image`, `edit_files`, `delete_files`, `get_form_submissions`,
+  `get_analytics`, `get_search_console`, `connect_search_console`, `buy_domain`,
+  `get_database_schema`, `query_database_rows`, `insert_database_rows`,
+  `update_database_rows`, `delete_database_rows`, `run_database_sql`.
+  `write_files` accepts `encoding: "base64"`; tools also accept an address instead of a numeric `app_id`.
+- **Errors show `CODE: message`** and `--json` errors now carry `code`, `status`,
+  `details` (e.g. `required_scope`), `request_id` and an actionable `hint`
+  (INSUFFICIENT_SCOPE → create a Full-preset key, DATABASE_NOT_PROVISIONED,
+  RLS_REQUIRED, RATE_LIMITED, PLAN_REQUIRED, INSUFFICIENT_CREDITS).
+- `publish` follows an already-running deploy on `409 CONFLICT` (reuses
+  `details.deploy_key`) and long-polls the status (`wait=30`) instead of sleeping.
+- `domains search` normalizes the query to one label ("Café Lumière" → `cafelumiere`) and adds missing dots to `--tlds`.
+- `list` prints a next-page hint (`--offset`) when there are more apps.
+- `kleap auth login` requests the scopes the new commands need (`forms:read`,
+  `analytics:read`, `database:read`, `database:write`, `domains:checkout`) — never `domains:purchase`.
+- Requests send `User-Agent: kleap-cli/<version>`; creates/edits carry `metadata.source = "kleap-cli"`.
+- Output is flushed before exit, so large `--json` payloads are never truncated when piped.
+- Tests: mock routes for every new endpoint + a JSON-RPC test that the MCP server exposes exactly the 33 remote-parity tools.
+
 ## 2.0.0
 
-- **Renamed the package `kleap-cli` → `kleap`.** Same CLI, same `kleap` command. Install with `npx kleap` / `npm i -g kleap-cli`. The old `kleap-cli` is deprecated and points here.
+- **Renamed the package `@eliottd/kleap` → `kleap-cli`.** Same CLI, same `kleap` command. Install with `npx -y kleap-cli` / `npm i -g kleap-cli`.
 
 
 All notable changes to the Kleap MCP server / CLI.

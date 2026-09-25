@@ -40,14 +40,32 @@ plainly — never invent a working URL.
 poll `check_task`, then `publish_app` to push the change live. Editing is
 reliable; prefer it over recreating.
 
+## Precise edits (your own code)
+
+`list_app_files` → `read_files` → `edit_files` (old_string → new_string) or
+`write_files` (new files; `encoding: "base64"` for images/fonts) or
+`delete_files` → `publish_app`. `generate_image({ app_id, path: "public/x.webp", prompt })`
+adds a real generated image without sending bytes.
+
+## Leads, traffic, database
+
+- `get_form_submissions({ app_id, since? })` — the site's leads, newest first.
+- `get_analytics({ app_id, period })`, `get_search_console({ app_id })`
+  (not connected → `connect_search_console` returns a link the USER opens).
+- `get_database_schema` → `query_database_rows` / `insert_database_rows` /
+  `update_database_rows` / `delete_database_rows` (`where` is required) /
+  `run_database_sql`. `DATABASE_NOT_PROVISIONED` → `modify_app` "add a database"
+  first. `RLS_REQUIRED` → enable row level security in the same SQL.
+- `403 INSUFFICIENT_SCOPE` → the user must create a new API key with the **Full** preset.
+
 ## Domains
 
-- `search_domains({ query })` — find available names. **You cannot buy a domain**
-  — purchase is confirmed by the user in Kleap. Tell the user to complete the
-  purchase there, then continue.
+- `search_domains({ query })` — find available names and prices.
+- `buy_domain({ domain, years?, app_id? })` — returns a `checkout_url` that the
+  **user** opens and pays. Nothing is bought until they pay: never say "bought"
+  or "live" before `check_domain` confirms it.
 - `connect_domain({ app_id, domain })` — connect a domain the user ALREADY owns
-  to a published app (the app must be published first). The user points the
-  domain's A record to Kleap; TLS is automatic.
+  to a published app. The user points the domain's A record to Kleap; TLS is automatic.
 - `check_domain({ domain })` — DNS / connection status.
 
 ## Conventions

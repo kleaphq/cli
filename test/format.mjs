@@ -8,6 +8,18 @@ import {
   formatListLine,
   formatDomainLine,
   findApexARecord,
+  isBinaryPath,
+  normalizeDomainQuery,
+  normalizeTlds,
+  flattenSubmission,
+  formatSubmissionLine,
+  formatAnalytics,
+  formatSearchConsole,
+  formatTableLine,
+  formatMessageLine,
+  parseJsonArg,
+  hintFor,
+  oneLine,
   HELP,
 } from "../lib/format.mjs";
 
@@ -102,10 +114,82 @@ test("returns null when missing", () => {
   assert.equal(findApexARecord(undefined), null);
 });
 
+console.log("parseArgs (2.1.0 flags)");
+test("value flags, --flag=value form, booleans", () => {
+  const { positional, flags } = parseArgs([
+    "db", "rows", "42", "leads", "--where", '{"a":1}', "--order-by=created_at", "--order", "desc",
+    "--all", "--hd", "--wait", "--stdin", "--years", "2", "--app", "bakery", "--replace", "",
+  ]);
+  assert.deepEqual(positional, ["db", "rows", "42", "leads"]);
+  assert.equal(flags.where, '{"a":1}');
+  assert.equal(flags.orderBy, "created_at");
+  assert.equal(flags.order, "desc");
+  assert.equal(flags.all && flags.hd && flags.wait && flags.stdin, true);
+  assert.equal(flags.years, "2");
+  assert.equal(flags.app, "bakery");
+  assert.equal(flags.replace, "");
+});
+test("a value flag at the very end records an empty string, not undefined", () => {
+  assert.equal(parseArgs(["--find"]).flags.find, "");
+});
+
+console.log("2.1.0 helpers");
+test("isBinaryPath — images/fonts/pdf yes, text and svg no", () => {
+  for (const p of ["public/a.png", "public/b.JPG", "public/f.woff2", "public/doc.pdf", "public/v.mp4"]) assert.equal(isBinaryPath(p), true, p);
+  for (const p of ["src/pages/index.astro", "public/logo.svg", "src/data/x.json", "README", "public/.png.txt"]) assert.equal(isBinaryPath(p), false, p);
+});
+test("normalizeDomainQuery — one lowercase label, accents and spaces stripped", () => {
+  assert.equal(normalizeDomainQuery("  Café Lumière "), "cafelumiere");
+});
+test("normalizeTlds — adds dots, drops blanks", () => {
+  assert.deepEqual(normalizeTlds("com, .ch,,io"), [".com", ".ch", ".io"]);
+  assert.equal(normalizeTlds(""), undefined);
+});
+test("flattenSubmission — data at top level + ids", () => {
+  assert.deepEqual(flattenSubmission({ id: "s1", submitted_at: "t", data: { email: "a@b.c" } }, "42"), {
+    email: "a@b.c", submission_id: "s1", submitted_at: "t", app_id: 42,
+  });
+});
+test("formatSubmissionLine — collapses newlines", () => {
+  assert.equal(formatSubmissionLine({ submitted_at: "t", data: { msg: "a\nb" } }), "t\tmsg=a b");
+});
+test("formatAnalytics — not configured shows the API message", () => {
+  const s = formatAnalytics({ period: "7d", configured: false, visitors: 0, pageviews: 0, message: "publish first" });
+  assert.equal(s, "7d: 0 visitors, 0 pageviews\n  publish first");
+});
+test("formatSearchConsole — connected numbers", () => {
+  assert.equal(
+    formatSearchConsole({ connected: true, site_selected: true, period: "28d", clicks: 5, impressions: 100, ctr: 0.05, position: 7.25 }),
+    "28d: 5 clicks, 100 impressions, CTR 5.0%, avg position 7.3",
+  );
+});
+test("formatTableLine / formatMessageLine / oneLine", () => {
+  assert.equal(formatTableLine({ name: "t", row_count: 0, columns: [{ name: "id", type: "int", primary_key: true, nullable: false }] }), "t (0 rows): id int pk");
+  assert.equal(formatMessageLine({ created_at: "t", role: "user", content: "hi\nthere" }), "t\tuser\thi there");
+  assert.equal(oneLine("x".repeat(10), 5), "xxxx…");
+});
+test("parseJsonArg — undefined for empty, throws a usage error naming the flag", () => {
+  assert.equal(parseJsonArg("", "--where"), undefined);
+  assert.deepEqual(parseJsonArg('{"a":1}', "--where"), { a: 1 });
+  assert.throws(() => parseJsonArg("{a:1}", "--where"), /--where is not valid JSON/);
+});
+test("hintFor — actionable hints for the fixable codes", () => {
+  assert.match(hintFor("INSUFFICIENT_SCOPE"), /Full preset/);
+  assert.match(hintFor("DATABASE_NOT_PROVISIONED"), /add a database/);
+  assert.match(hintFor("RLS_REQUIRED"), /ROW LEVEL SECURITY/);
+  for (const c of ["RATE_LIMITED", "PLAN_REQUIRED", "INSUFFICIENT_CREDITS"]) assert.ok(hintFor(c), c);
+  assert.equal(hintFor("SOMETHING_ELSE"), null);
+});
+
 console.log("HELP");
 test("mentions every subcommand", () => {
   const text = HELP("1.2.0");
-  for (const cmd of ["auth login", "create", "edit", "publish", "status", "list", "domains search", "domains connect", "screenshot", "mcp"]) {
+  for (const cmd of [
+    "auth login", "create", "edit", "publish", "status", "list", "domains search", "domains connect", "screenshot", "mcp",
+    "files ls", "files cat", "files write", "files edit", "files rm", "forms", "analytics",
+    "db schema", "db rows", "db insert", "db update", "db delete", "db sql",
+    "domains buy", "domains check", "task retry", "rename", "wake", "image", "search-console connect", "credits", "messages",
+  ]) {
     assert.ok(text.includes(cmd), `HELP should mention "${cmd}"`);
   }
   assert.ok(text.includes("1.2.0"));

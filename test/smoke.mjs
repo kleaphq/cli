@@ -6,23 +6,13 @@ import { dirname, join } from "node:path";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EXPECTED = [
-  "list_apps",
-  "get_app",
-  "find_app",
-  "list_app_files",
-  "read_files",
-  "write_files",
-  "create_app",
-  "modify_app",
-  "rename_app",
-  "check_task",
-  "retry_task",
-  "publish_app",
-  "get_publish_status",
-  "get_credits",
-  "search_domains",
-  "check_domain",
-  "connect_domain",
+  "create_app", "modify_app", "check_task", "retry_task", "publish_app", "get_publish_status",
+  "list_apps", "get_app", "find_app", "rename_app", "get_screenshot", "wake_app", "generate_image",
+  "list_app_files", "read_files", "write_files", "edit_files", "delete_files",
+  "get_form_submissions", "get_analytics", "get_search_console", "connect_search_console", "get_credits",
+  "search_domains", "check_domain", "connect_domain", "buy_domain",
+  "get_database_schema", "query_database_rows", "insert_database_rows", "update_database_rows",
+  "delete_database_rows", "run_database_sql",
 ];
 
 const child = spawn("node", ["kleap-mcp-server.mjs"], {

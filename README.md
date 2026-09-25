@@ -3,7 +3,7 @@
 [![CI](https://github.com/kleaphq/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/kleaphq/cli/actions/workflows/ci.yml)
 [![CLI](https://img.shields.io/badge/CLI-kleap-16b364)](#cli-for-agent-shells--claude-code-codex-scripts)
 [![MCP](https://img.shields.io/badge/MCP-server-2563eb)](https://modelcontextprotocol.io)
-[![26 tools](https://img.shields.io/badge/tools-26-ff0055)](#tools)
+[![33 tools](https://img.shields.io/badge/tools-33-ff0055)](#tools)
 [![license](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 
 > **Your agent builds. Kleap ships it live.**
@@ -70,7 +70,24 @@ npx -y kleap-cli status warm-bakery-fold.kleap.io   # by id, slug, kleap.io URL,
 | `kleap list [--limit N] [--q text] [--json]` | Your apps, one tab-separated row each: `id  name  url` |
 | `kleap domains search <query> [--tlds .com,.io] [--json]` | Available domains, one per line |
 | `kleap domains connect <domain> <app> [--json]` | Connect a domain you own; prints the A record to set |
-| `kleap screenshot <app> [--json]` | Capture a preview screenshot, print its URL |
+| `kleap screenshot <app>` | Capture a preview screenshot, print its URL |
+| `kleap task <task_id> [--wait]` / `kleap task retry <task_id> [--wait]` | A create/edit task's status (long-poll with `--wait`) / resume a failed one |
+| `kleap rename <app> <name>` · `kleap wake <app>` · `kleap messages <app>` · `kleap credits` | Rename (URL unchanged) · wake a preview sandbox · chat history · credit balance + plan |
+| `kleap files ls <app>` · `files cat <app> <path...>` | List source paths · print file contents |
+| `kleap files write <app> <path> --file <local> \| --stdin \| --content "<text>"` | Write a file (binary extensions go base64 automatically, 512 KB max) → then `publish` |
+| `kleap files edit <app> <path> --find "<old>" --replace "<new>" [--all]` | Replace text inside a file |
+| `kleap files rm <app> <path...>` | Delete pages/assets (live until the next `publish`) |
+| `kleap image <app> <public/name.webp> "<prompt>" [--hd]` | Generate an image into the site → then `publish` |
+| `kleap forms <app> [--since ISO] [--limit N]` | Form submissions (leads), newest first; `--json` is flattened |
+| `kleap analytics <app> [--period 7d\|30d\|90d]` | Visitors, pageviews, top pages |
+| `kleap search-console <app>` · `search-console connect <app>` | Google Search numbers · the consent link the user opens |
+| `kleap db schema <app>` | Tables, row counts, columns of the app's Postgres |
+| `kleap db rows <app> <table> [--where json] [--limit] [--offset] [--order-by col --order asc\|desc]` | Read rows (one JSON object per line) |
+| `kleap db insert <app> <table> '<json>'\|--file rows.json` | Insert one object or an array (chunked at 500) |
+| `kleap db update <app> <table> --where json --set json` · `db delete <app> <table> --where json` | `--where` is mandatory and non-empty |
+| `kleap db sql <app> "<sql>" [--params json]` | One SQL statement with `$1..$n` params |
+| `kleap domains buy <domain> [--years N] [--app <app>]` | Creates a Stripe checkout link **the user pays** — never bought until they do |
+| `kleap domains check <domain>` | DNS / connection status (also: did the paid domain get registered?) |
 | `kleap mcp` | Run the MCP stdio server explicitly (same as no args) |
 
 `<app>` accepts a numeric app id, a `slug.kleap.io` URL, a bare slug, or a
@@ -256,27 +273,31 @@ Works with **any MCP-compatible agent**: Claude · ChatGPT · Cursor · Claude C
 
 ## Tools
 
-**Find & build** — `find_app` · `create_app` · `modify_app` · `read_files` · `write_files` · `rename_app` · `check_task` · `retry_task`
-**Publish & domains** — `publish_app` · `get_publish_status` · `search_domains` · `check_domain` · `connect_domain`
-**Account** — `list_apps` · `get_app` · `list_app_files` · `get_credits`
+**Find & build** — `find_app` · `create_app` · `modify_app` · `check_task` · `retry_task` · `rename_app` · `get_screenshot` · `wake_app`
+**Files** — `list_app_files` · `read_files` · `write_files` · `edit_files` · `delete_files` · `generate_image`
+**Publish & domains** — `publish_app` · `get_publish_status` · `search_domains` · `buy_domain` · `check_domain` · `connect_domain`
+**Leads, traffic, SEO** — `get_form_submissions` · `get_analytics` · `get_search_console` · `connect_search_console`
+**Database** — `get_database_schema` · `query_database_rows` · `insert_database_rows` · `update_database_rows` · `delete_database_rows` · `run_database_sql`
+**Account** — `list_apps` · `get_app` · `get_credits`
 
 | Tool | What it does |
 |------|--------------|
 | `find_app` | Resolve a domain / URL / slug → app_id in one call |
-| `create_app` | Create an Astro site from a prompt → returns a task (auto-deploys live) |
-| `modify_app` | Ask the app's AI to change it → returns a task |
-| `read_files` | Read the **current contents** of files so you can edit them safely (not blind) |
-| `write_files` | Write exact files directly (**your** code, deterministic) → then `publish_app` |
-| `rename_app` | Rename the display name (URL stays the same) |
-| `check_task` | Long-poll a create/modify task to completion (`wait` up to 50s) |
-| `retry_task` | Resume a failed/stalled build from partial state (new task_id) |
-| `publish_app` | Publish with verified-live (live-or-rollback, never a false "online") |
-| `get_publish_status` | Confirm a site is actually published + live |
-| `search_domains` | Find available domains (purchase stays user-confirmed in Kleap) |
-| `connect_domain` | Connect a domain you already own to a live app |
-| `check_domain` | A domain's connection / DNS status |
-| `list_apps` / `get_app` / `list_app_files` | Your apps, an app's details, its files (read-only) |
-| `get_credits` | Remaining credit balance + plan |
+| `create_app` / `modify_app` | Build a site from a prompt / ask its AI for a change → returns a task (auto-deploys live) |
+| `check_task` / `retry_task` | Long-poll a task (`wait` up to 50s) / resume a failed one (new task_id) |
+| `read_files` → `edit_files` / `write_files` / `delete_files` | Read current contents, then change exactly what must change (base64 for binaries) → `publish_app` |
+| `generate_image` | Generate a real image into `public/` without sending bytes |
+| `publish_app` / `get_publish_status` | Publish with verified-live; confirm it + read the post-deploy report |
+| `search_domains` / `buy_domain` | Find domains / create a checkout link **the user pays** (nothing is bought by the agent) |
+| `connect_domain` / `check_domain` | Connect a domain the user owns / its DNS status |
+| `get_form_submissions` | The site's leads, newest first (`since` for only new ones) |
+| `get_analytics` / `get_search_console` / `connect_search_console` | Traffic / Google Search numbers / consent link for Search Console |
+| `get_database_schema` … `run_database_sql` | The app's Postgres: schema, row CRUD (`where` required for update/delete), SQL |
+| `rename_app` / `get_screenshot` / `wake_app` | Rename (URL unchanged) / screenshot URL / wake a preview sandbox |
+| `list_apps` / `get_app` / `get_credits` | Your apps, one app's details, credit balance + plan |
+
+Database and checkout tools need the `database:*` / `domains:checkout` scopes: a key
+created before they existed gets `403 INSUFFICIENT_SCOPE` — create a new key with the **Full** preset.
 
 App arguments are snake_case: `app_id`, `task_id`, `prompt`, `message`, `visibility`.
 

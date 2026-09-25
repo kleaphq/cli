@@ -1,7 +1,7 @@
 {
   "name": "kleap-cli",
-  "version": "2.0.0",
-  "description": "CLI + MCP server for AI agents to build, edit and publish real websites on Kleap. `kleap create/edit/publish/status/list/domains/screenshot` (compact, --json, clean exit codes) or drive it from any MCP client (Claude, ChatGPT, Cursor) \u2014 with the verified-live guarantee.",
+  "version": "2.1.0",
+  "description": "CLI + MCP server for AI agents to build, edit and publish real websites on Kleap — apps, files, form leads, analytics, the app's database and domains (search, user-paid checkout, connect). Compact output, --json everywhere, clean exit codes, verified-live publishing.",
   "type": "module",
   "bin": {
     "kleap": "kleap-mcp-server.mjs"
@@ -34,7 +34,11 @@
     "chatgpt",
     "cursor",
     "ai",
-    "publish"
+    "publish",
+    "database",
+    "leads",
+    "forms",
+    "domains"
   ],
   "repository": {
     "type": "git",

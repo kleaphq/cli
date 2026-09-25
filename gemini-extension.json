@@ -1,6 +1,6 @@
 {
   "name": "kleap",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Build, edit, publish and manage real websites and web apps on Kleap from Gemini CLI (remote MCP, OAuth).",
   "mcpServers": {
     "kleap": {
