@@ -1,7 +1,7 @@
 ---
 name: kleap
-description: "Your agent improves your website's SEO every day: audit, fix titles/meta/alt/links/schema, publish verified-live, log every change. Also builds, hosts and runs the site. No API key: browser sign-in."
-version: 1.2.0
+description: "Ship and run a live website or web app end-to-end — hosting, database, auth, forms/leads, analytics, custom domains — driven from this agent via the kleap CLI (npx, no install)."
+version: 1.1.1
 metadata:
   openclaw:
     requires:
@@ -16,29 +16,10 @@ metadata:
     homepage: "https://kleap.co/mcp"
 ---
 
-# Kleap — your agent improves your website's SEO every day
+# Kleap — ship and run a live business from this agent
 
-Point your agent at a site on Kleap and it does the SEO work on a schedule: it audits the pages, picks the 3
-highest-impact problems (page titles, meta descriptions, missing image alt text, dead internal links, JSON-LD schema,
-Google queries with many impressions but few clicks), fixes them with exact file edits, publishes with a
-**verified-live** check, reverts anything that breaks, and tells you what changed. The edits cost **0 Kleap credits**.
-
-**Try it in two minutes**
-
-```bash
-npx -y kleap-cli@latest auth login      # browser sign-in, nothing to paste
-npx -y kleap-cli@latest list            # your sites
-```
-Then tell your agent: *"Use the kleap-seo-autopilot skill on <my site>"* (install it with
-`npx skills add kleaphq/skills`, or from ClawHub: `openclaw skills install @kleap/kleap-seo-autopilot`).
-Run it daily with your agent's scheduler (OpenClaw cron, Hermes cron, Claude Code routines, Codex scheduled tasks, Grok `-p` + cron).
-
-The rest of this skill is the full toolbox the loop is built on: build, edit, publish, read leads and traffic, run the
-site's database, buy or connect a domain.
-
----
-
-## Ship and run a live business from this agent
+> **Already have a site on Kleap?** Install `kleap-seo-autopilot`: your agent fixes its SEO and proves the page is live
+> (`npx skills add kleaphq/skills --skill kleap-seo-autopilot`). This skill is the toolbox it is built on.
 
 Kleap turns a prompt into a **live, hosted site** — hosting, database, auth,
 forms and TLS included — and every publish is **verified-live** (a URL is only
