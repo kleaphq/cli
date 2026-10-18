@@ -18,7 +18,7 @@ metadata:
 
 # Kleap — ship and run a live business from this agent
 
-> **Already have a site on Kleap?** Install `kleap-seo-autopilot`: your agent fixes its SEO and proves the page is live
+> **Already have a site on Kleap?** Install `kleap-seo-autopilot`: your agent fixes its SEO and proves the page is live. Not on Kleap? It audits any site for free, no account
 > (`npx skills add kleaphq/skills --skill kleap-seo-autopilot`). This skill is the toolbox it is built on.
 
 Kleap turns a prompt into a **live, hosted site** — hosting, database, auth,
