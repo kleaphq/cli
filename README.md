@@ -143,7 +143,7 @@ https://kleap.co/api/mcp
 - **ChatGPT** — Settings → Connectors → add the URL → authorize with OAuth.
 - **Cursor** — Settings → **MCP** → Add server → paste the URL → authorize.
 
-That's it — all 26 hosted tools are available after OAuth sign-in. Skip straight to step 3.
+That's it — all 34 hosted tools (the 33 listed below plus upgrade_plan) are available after OAuth sign-in. Skip straight to step 3.
 
 ---
 

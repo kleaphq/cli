@@ -1,7 +1,7 @@
 ---
 name: kleap
 description: "Ship and run a live website or web app end-to-end — hosting, database, auth, forms/leads, analytics, custom domains — driven from this agent via the kleap CLI (npx, no install)."
-version: 1.1.0
+version: 1.1.1
 metadata:
   openclaw:
     requires:
@@ -17,6 +17,9 @@ metadata:
 ---
 
 # Kleap — ship and run a live business from this agent
+
+> **Already have a site on Kleap?** Install `kleap-seo-autopilot`: your agent fixes its SEO and proves the page is live. Not on Kleap? It audits any site for free, no account
+> (`npx skills add kleaphq/skills --skill kleap-seo-autopilot`). This skill is the toolbox it is built on.
 
 Kleap turns a prompt into a **live, hosted site** — hosting, database, auth,
 forms and TLS included — and every publish is **verified-live** (a URL is only
