@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.0 — 2026-11-04
+
+Made after watching a fresh AI agent build a real site with this CLI (35 min for a ~5 min job).
+
+- **`create` / `edit` / `task --wait` are never silent.** The app id and task id are printed
+  at once, then one progress line per poll (status, %, step, files written), all on stderr,
+  so stdout stays one line / one JSON object.
+- **Bounded wait, new exit code `2`.** After 9 min (`KLEAP_WAIT_MINUTES`) the command stops
+  waiting and exits `2` = still running, NOT failed, with the exact `kleap task <id> --wait`
+  to continue. An agent's shell tool times out long before a 5-15 min build ends.
+- **A failed create names the app it left behind** and the retry command. On the server,
+  `task retry` now restarts a build that wrote nothing instead of refusing (NOT_RESUMABLE).
+- **`<command> --help`** prints the help (`kleap task --help` used to look up task "--help").
+- **Missing-permission hint** now says to run `kleap auth login` again for OAuth sign-ins
+  (a sign-in made before a permission existed never gains it), not only "create a new key".
+
 ## 2.1.0 — 2026-09-25
 
 Full parity with the hosted Kleap MCP server, plus the app database and

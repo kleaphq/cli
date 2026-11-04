@@ -1091,8 +1091,26 @@ async function appFrom(appArg, usageText) {
   await ensureToken();
   return resolveAppId(appArg);
 }
-// Long-poll a create/modify task to a terminal state (bounded overall wait).
-async function pollTask(taskId, { maxWaitMs = 20 * 60 * 1000 } = {}) {
+// Long-poll a create/modify task to a terminal state.
+//
+// An agent's shell tool gives up long before a build ends (Claude Code: 2 min
+// by default, 10 max; a site takes 5-15 min). Waiting 20 minutes in silence
+// left an agent unable to tell "working" from "stuck", and when the build
+// failed it had no app id to recover with (KLE-2528, 2026-11-04). So:
+//   - progress goes to STDERR every poll (stdout stays one clean line / JSON);
+//   - the wait is capped at KLEAP_WAIT_MINUTES (default 9, under the 10-min
+//     ceiling), then we exit with code 2 = "still running, not failed" and
+//     the exact command to keep waiting.
+const WAIT_MAX_MS =
+  (Number(process.env.KLEAP_WAIT_MINUTES) > 0 ? Number(process.env.KLEAP_WAIT_MINUTES) : 9) * 60 * 1000;
+function progressLine(label, task) {
+  const pct = typeof task?.progress === "number" ? ` ${task.progress}%` : "";
+  const m = task?.metadata || {};
+  const files = Array.isArray(m.files_changed_so_far) ? m.files_changed_so_far.length : 0;
+  const detail = [m.current_step != null ? `step ${m.current_step}` : "", files ? `${files} files written` : ""].filter(Boolean).join(", ");
+  return `… ${label} ${task?.status || "queued"}${pct}${detail ? ` (${detail})` : ""}`;
+}
+async function pollTask(taskId, { maxWaitMs = WAIT_MAX_MS, label = `task ${taskId}`, json = false, appId } = {}) {
   const start = Date.now();
   let task;
   do {
@@ -1103,9 +1121,15 @@ async function pollTask(taskId, { maxWaitMs = 20 * 60 * 1000 } = {}) {
       { timeoutMs: 75000 },
     );
     if (task.status === "completed" || task.status === "failed") return task;
+    console.error(progressLine(label, task));
   } while (Date.now() - start < maxWaitMs);
-  throw new Error(
-    `task ${taskId} still ${task.status} after ${Math.round(maxWaitMs / 60000)}min — check again later: kleap task ${taskId} --wait`,
+  const next = `kleap task ${taskId} --wait`;
+  const minutes = Math.round((Date.now() - start) / 60000);
+  return finish(
+    json
+      ? JSON.stringify({ status: task.status, task_id: taskId, ...(appId ? { app_id: appId } : {}), still_running: true, next })
+      : `… still ${task.status} after ${minutes} min (not failed)${appId ? ` — app ${appId}` : ""} — keep waiting: ${next}`,
+    2,
   );
 }
 // A completed task's result.production_url can briefly be null while the CF
@@ -1122,8 +1146,9 @@ async function resolveLiveUrl(appId, task) {
   return null;
 }
 function taskFailure(task, verb) {
+  const appPart = task.app_id ? ` App ${task.app_id} exists — inspect it with: kleap status ${task.app_id}.` : "";
   const err = new Error(
-    `${verb} failed [${task.error?.code || "TASK_FAILED"}]: ${task.error?.message || "unknown error"} — resume it: kleap task retry ${task.task_id}`,
+    `${verb} failed [${task.error?.code || "TASK_FAILED"}]: ${task.error?.message || "unknown error"}.${appPart} Retry it (resumes, or restarts if nothing was built yet): kleap task retry ${task.task_id} --wait`,
   );
   err.code = task.error?.code || "TASK_FAILED";
   err.task = task;
@@ -1155,8 +1180,9 @@ async function cliCreate(positional, flags) {
       flags.json,
     );
   }
-  const task = await pollTask(created.task_id);
-  if (task.status === "failed") throw taskFailure({ task_id: created.task_id, ...task }, "create");
+  console.error(`… building app ${created.app_id} (task ${created.task_id}) — a site takes 5-15 min; progress below`);
+  const task = await pollTask(created.task_id, { label: `app ${created.app_id}`, json: flags.json, appId: created.app_id });
+  if (task.status === "failed") throw taskFailure({ task_id: created.task_id, app_id: created.app_id, ...task }, "create");
   const url = await resolveLiveUrl(created.app_id, task);
   return emitOk(
     `✓ created app ${created.app_id} — ${url || `(built, deploy pending — kleap status ${created.app_id})`}`,
@@ -1183,8 +1209,9 @@ async function cliEdit(positional, flags) {
       flags.json,
     );
   }
-  const task = await pollTask(created.task_id);
-  if (task.status === "failed") throw taskFailure({ task_id: created.task_id, ...task }, "edit");
+  console.error(`… editing app ${appId} (task ${created.task_id}) — progress below`);
+  const task = await pollTask(created.task_id, { label: `app ${appId}`, json: flags.json, appId });
+  if (task.status === "failed") throw taskFailure({ task_id: created.task_id, app_id: appId, ...task }, "edit");
   const url = await resolveLiveUrl(appId, task);
   return emitOk(
     `✓ edited app ${appId} — ${url || `(built, deploy pending — kleap status ${appId})`}`,
@@ -1376,15 +1403,15 @@ async function cliTask(positional, flags) {
     if (!flags.wait) {
       return emitOk(`… retrying as task ${retried.task_id} — kleap task ${retried.task_id} --wait`, retried, flags.json);
     }
-    const task = await pollTask(retried.task_id);
-    if (task.status === "failed") throw taskFailure({ task_id: retried.task_id, ...task }, "retry");
+    const task = await pollTask(retried.task_id, { json: flags.json, appId: retried.app_id });
+    if (task.status === "failed") throw taskFailure({ task_id: retried.task_id, app_id: retried.app_id, ...task }, "retry");
     return emitOk(taskLine({ task_id: retried.task_id, ...task }), { ...retried, ...task }, flags.json);
   }
   const taskId = positional[0];
   if (!taskId) throw usage("kleap task <task_id> [--wait] [--json] | kleap task retry <task_id> [--wait]");
   await ensureToken();
   const task = flags.wait
-    ? await pollTask(taskId)
+    ? await pollTask(taskId, { json: flags.json })
     : await api("GET", `/tasks/${encodeURIComponent(taskId)}?wait=0`);
   const full = { task_id: taskId, ...task };
   if (full.status === "failed") throw taskFailure(full, `task ${taskId}`);
@@ -1703,7 +1730,12 @@ const CLI_HANDLERS = {
   messages: cliMessages,
 };
 
-if (cmd[0] === "help" || cmd[0] === "--help" || cmd[0] === "-h") {
+// `kleap task --help` used to read "--help" as a task id (404). Any command
+// followed by -h/--help prints the help instead of running.
+if (
+  cmd[0] === "help" || cmd[0] === "--help" || cmd[0] === "-h" ||
+  (cmd[0] !== "files" && cmd.slice(1).some((a) => a === "--help" || a === "-h"))
+) {
   console.log(HELP(PKG_VERSION));
   process.exit(0);
 }

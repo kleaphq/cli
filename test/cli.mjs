@@ -93,7 +93,8 @@ const server = createServer((req, res) => {
     if (req.method === "POST" && path === "/api/v1/apps") {
       const failing = /FAIL_TASK/.test(body.prompt || "");
       const pending = /PENDING_DEPLOY/.test(body.prompt || "");
-      const taskId = failing ? "task_fail_1" : pending ? "task_pending_1" : "task_create_1";
+      const stuck = /STUCK_TASK/.test(body.prompt || "");
+      const taskId = failing ? "task_fail_1" : stuck ? "task_stuck_1" : pending ? "task_pending_1" : "task_create_1";
       return send(res, 201, {
         task_id: taskId,
         app_id: 99,
@@ -123,6 +124,9 @@ const server = createServer((req, res) => {
           status: "failed",
           error: { code: "TASK_FAILED", message: "generation error: model refused" },
         });
+      }
+      if (id === "task_stuck_1") {
+        return send(res, 200, { task_id: id, type: "create", status: "processing", progress: 40, app_id: 99, metadata: { current_step: 3 } });
       }
       if (id === "task_pending_1") {
         return send(res, 200, {
@@ -378,8 +382,8 @@ const BASE_URL = `http://127.0.0.1:${server.address().port}`;
 // loop until the child exits — but the child can't get an HTTP response
 // until that same event loop is free to run the mock server's callback.
 // That's a guaranteed deadlock, not a network/sandbox issue.
-function run(args, { key = "test_key", home = HOME, input } = {}) {
-  const env = { PATH: process.env.PATH, HOME: home, KLEAP_API_URL: BASE_URL };
+function run(args, { key = "test_key", home = HOME, input, extraEnv = {} } = {}) {
+  const env = { PATH: process.env.PATH, HOME: home, KLEAP_API_URL: BASE_URL, ...extraEnv };
   if (key) env.KLEAP_API_KEY = key;
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [BIN, ...args], { cwd: root, env });
@@ -440,6 +444,31 @@ await test("a task that fails surfaces the task's error code + message, exit 1",
   assert.equal(r.status, 1);
   assert.match(r.stderr, /TASK_FAILED/);
   assert.match(r.stderr, /model refused/);
+});
+await test("a failed create names the app it left behind and the retry", async () => {
+  const r = await run(["create", "FAIL_TASK please"]);
+  assert.match(r.stderr, /App 99 exists/);
+  assert.match(r.stderr, /kleap task retry task_fail_1/);
+});
+await test("ids + progress go to stderr at once; past the wait cap: exit 2, not a failure", async () => {
+  const r = await run(["create", "STUCK_TASK site"], { extraEnv: { KLEAP_WAIT_MINUTES: "0.001" } });
+  assert.equal(r.status, 2, r.stderr);
+  assert.match(r.stderr, /building app 99 \(task task_stuck_1\)/);
+  assert.match(r.stderr, /processing 40% \(step 3\)/);
+  assert.match(r.stdout, /still processing .*not failed.* kleap task task_stuck_1 --wait/);
+});
+await test("--json past the wait cap: one JSON object with still_running + next", async () => {
+  const r = await run(["create", "STUCK_TASK site", "--json"], { extraEnv: { KLEAP_WAIT_MINUTES: "0.001" } });
+  assert.equal(r.status, 2, r.stderr);
+  const d = JSON.parse(r.stdout);
+  assert.equal(d.still_running, true);
+  assert.equal(d.app_id, 99);
+  assert.equal(d.next, "kleap task task_stuck_1 --wait");
+});
+await test("`kleap task --help` prints help instead of fetching task '--help'", async () => {
+  const r = await run(["task", "--help"]);
+  assert.equal(r.status, 0);
+  assert.match(r.stdout, /Usage:/);
 });
 await test("null production_url on completion falls back to polling GET /apps/:id", async () => {
   const r = await run(["create", "PENDING_DEPLOY site"]);
