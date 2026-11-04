@@ -36,7 +36,7 @@ token saved by `kleap auth login`) and talks only to `kleap.co`.
 
 If your agent drives a **bash tool** rather than MCP, use the CLI directly.
 Output is 1-3 lines by default (token-efficient — built for an agent reading
-its own tool output, not a human terminal), clean exit codes (`0`/`1`), and a
+its own tool output, not a human terminal), clean exit codes (`0` ok / `1` failed / `2` still running), and a
 `--json` flag whenever you want the full structured response.
 
 ```bash
@@ -108,7 +108,9 @@ npx -y kleap-cli create "a landing page for my podcast" --no-wait --json   # →
 npx -y kleap-cli status 4821
 ```
 
-Exit codes are always clean: `0` on success, `1` on any failure, with a single
+Exit codes are always clean: `0` on success, `1` on any failure, `2` when a build is
+still running after the wait cap (9 min, `KLEAP_WAIT_MINUTES` to change it) — not a
+failure: the line gives the `kleap task <id> --wait` to keep waiting. Failures print a single
 `✗ <reason>` line on stderr (or `{"error":{"message":...}}` with `--json`) —
 safe to check with `$?` / `try/except subprocess.run(..., check=True)` without
 scraping prose.

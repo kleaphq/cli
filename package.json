@@ -1,6 +1,6 @@
 {
   "name": "kleap-cli",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "CLI + MCP server for AI agents to build, edit and publish real websites on Kleap — apps, files, form leads, analytics, the app's database and domains (search, user-paid checkout, connect). Compact output, --json everywhere, clean exit codes, verified-live publishing.",
   "type": "module",
   "bin": {
